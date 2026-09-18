@@ -116,7 +116,7 @@ gmd(
     aliases: ["statusreact", "reactwith"],
     react: "⚙️",
     category: "owner",
-    description: "Set status reaction: an emoji, 'name' to react with sender's name, or 'random' to reset",
+    description: "Set status reaction: an emoji, 'name' to react with sender's name, 'brand' for branded phrase + date/time, or 'random' to reset",
   },
   async (from, Guru, conText) => {
     const { q, reply, react, isSuperUser } = conText;
@@ -127,6 +127,7 @@ gmd(
         "Examples:\n" +
         "• `.setreact 😎` — always react with that emoji\n" +
         "• `.setreact name` — react with the sender's WhatsApp name\n" +
+        "• `.setreact brand` — react with a branded phrase + view date/time (see *.setbrandphrase*)\n" +
         "• `.setreact random` — go back to picking randomly from *setstatusemojis*",
       );
     try {
@@ -149,9 +150,50 @@ gmd(
           "✅ Status reactions will now use the sender's WhatsApp name.\n\n" +
           "⚠️ Note: this isn't an official WhatsApp feature — text reactions may not render the same way on every device.",
         );
+      } else if (value.toLowerCase() === "brand") {
+        await reply(
+          "✅ Status reactions will now use your branded phrase + the view date/time.\n" +
+          "Set the phrase with *.setbrandphrase <text>* (default: \"👀 Seen by <bot name>\").\n\n" +
+          "⚠️ Note: this isn't an official WhatsApp feature — text reactions may not render the same way on every device.",
+        );
       } else {
         await reply(`✅ Status reaction set to: *${value}*`);
       }
+    } catch (error) {
+      await reply(`❌ Error: ${error.message}`);
+    }
+  },
+);
+
+gmd(
+  {
+    pattern: "setbrandphrase",
+    aliases: ["brandphrase", "statusbrand"],
+    react: "⚙️",
+    category: "owner",
+    description: "Set the branded phrase used when status reaction mode is 'brand'",
+  },
+  async (from, Guru, conText) => {
+    const { q, reply, react, isSuperUser } = conText;
+    if (!isSuperUser) return reply("❌ Owner Only Command!");
+    if (!q || q.trim() === "")
+      return reply(
+        "❌ Please provide a phrase!\nExample: .setbrandphrase 👀 Seen by ULTRA GURU",
+      );
+
+    try {
+      const value = q.trim();
+      const current = await getSetting("STATUS_BRAND_PHRASE");
+      if ((current || "") === value) {
+        return reply(`⚠️ Brand phrase is already: *${value}*`);
+      }
+
+      await setSetting("STATUS_BRAND_PHRASE", value);
+      await react("✅");
+      await reply(
+        `✅ Brand phrase set to: *${value}*\n\n` +
+          `_Active on statuses once status reaction mode is set to "brand" — use *.setreact brand* to enable._`,
+      );
     } catch (error) {
       await reply(`❌ Error: ${error.message}`);
     }
