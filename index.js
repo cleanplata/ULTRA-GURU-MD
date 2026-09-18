@@ -347,13 +347,12 @@ async function sendStartupMessage(socket, s) {
         const msg = [
             `*✅ ${botName} — ONLINE*`,
             ``,
-            `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
             `📊 *Plugins*  : ${totalCommands}`,
             `⚡ *Prefix*   : ${s.PREFIX || d.PREFIX}`,
             `⚙️ *Mode*     : ${modeLabel}`,
             `🔒 *Licence*  : ${expLine}`,
             `📲 *Telegram* : t.me/GURU_TECHLAB`,
-            `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+            ``,
             `> ✨ _${s.CAPTION || d.CAPTION}_`,
             `> _Allow a few seconds to sync._`,
         ].join("\n");
