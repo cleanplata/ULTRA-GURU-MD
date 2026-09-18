@@ -380,6 +380,28 @@ function setupStatusHandlers(Guru) {
                     // so rendering of plain text can vary between client versions.
                     reactContent =
                         mek.pushName || mek.key?.pushName || "Unknown";
+                } else if (reactSetting.toLowerCase() === "brand") {
+                    // Branded phrase + the date/time the status was viewed, e.g.
+                    // "👀 Seen by ULTRA GURU • 14:32 18/09". Same caveat as "name":
+                    // unofficial, so a client may reject/mis-render the long text —
+                    // the existing fallback-to-emoji retry below still applies.
+                    const brandPhrase =
+                        (s.STATUS_BRAND_PHRASE || "").trim() ||
+                        `👀 Seen by ${s.BOT_NAME || "ULTRA GURU"}`;
+                    const tz = s.TIME_ZONE || "Africa/Nairobi";
+                    const now = new Date();
+                    const timeStr = new Intl.DateTimeFormat("en-US", {
+                        hour: "numeric",
+                        minute: "numeric",
+                        hour12: true,
+                        timeZone: tz,
+                    }).format(now);
+                    const dateStr = new Intl.DateTimeFormat("en-GB", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        timeZone: tz,
+                    }).format(now);
+                    reactContent = `${brandPhrase} • ${timeStr} ${dateStr}`;
                 } else if (reactSetting) {
                     // A fixed custom emoji/text the owner configured with .setreact
                     reactContent = reactSetting;
