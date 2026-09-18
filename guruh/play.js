@@ -7,6 +7,18 @@ const axios   = require("axios");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Try every candidate source at once and use whichever answers first,
+// instead of trying them one at a time — a single slow/dead API used to be
+// able to block the whole chain for up to its own timeout before the next
+// one even started.
+async function raceChain(fns) {
+    try {
+        return await Promise.any(fns.map((fn) => fn()));
+    } catch (_) {
+        return null; // every source failed
+    }
+}
+
 function isYtUrl(str) {
     return /(?:https?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/(?:watch\?v=|v\/|embed\/|shorts\/|playlist\?list=)?)([A-Za-z0-9_-]{11})/.test(str);
 }
@@ -23,9 +35,9 @@ function fmtDuration(secs) {
     return `${m}:${sec}`;
 }
 
-// ── Toxic-MD box formatter ────────────────────────────────────────────────────
+// ── Minimal formatter (matches the bot's startup-message style) ──────────────
 const fmt = (title, lines, footer) =>
-    `╭─❏ 「 ${title}」\n${lines.map(l => `│ ${l}`).join("\n")}\n╰───────────────\n> _${footer}_`;
+    `*${title}*\n\n${lines.join("\n")}\n\n> _${footer}_`;
 
 // ── Audio API chain (primary: Toxic-MD APIs → fallbacks) ─────────────────────
 async function resolveAudio(query, isUrl) {
@@ -94,10 +106,7 @@ async function resolveAudio(query, isUrl) {
         return { url, title: data?.title || data?.result?.title || query };
     });
 
-    for (const fn of [...toxicChain, ...legacyChain]) {
-        try { return await fn(); } catch {}
-    }
-    return null;
+    return raceChain([...toxicChain, ...legacyChain]);
 }
 
 // ── Video API chain ───────────────────────────────────────────────────────────
@@ -147,10 +156,7 @@ async function resolveVideo(query, isUrl) {
         return { url, title: data?.title || data?.result?.title || "Video" };
     });
 
-    for (const fn of [...toxicChain, ...legacyChain]) {
-        try { return await fn(); } catch {}
-    }
-    return null;
+    return raceChain([...toxicChain, ...legacyChain]);
 }
 
 // ─── PLAY (audio) ─────────────────────────────────────────────────────────────
@@ -198,40 +204,67 @@ gmd(
         const { url, title, thumbnail, sourceUrl } = resolved;
 
         try {
-            await Guru.sendMessage(
-                from,
-                {
-                    audio: { url },
-                    mimetype: "audio/mpeg",
-                    ptt: false,
-                    fileName: `${(title || query).replace(/[^\w\s.-]/g, "")}.mp3`,
-                    contextInfo: thumbnail ? {
-                        externalAdReply: {
-                            title: (title || query).substring(0, 30),
-                            body: botName || "ULTRA GURU MD",
-                            thumbnailUrl: thumbnail,
-                            sourceUrl: sourceUrl || url,
-                            mediaType: 1,
-                            renderLargerThumbnail: true,
-                        },
-                    } : undefined,
-                },
-                { quoted: mek }
-            );
+            // Fetch the actual thumbnail image bytes instead of just handing
+            // WhatsApp a remote URL to fetch itself — a bare thumbnailUrl
+            // often renders as a black box since it depends on WhatsApp's own
+            // servers being able to reach and re-fetch that URL in time. A
+            // real jpeg buffer embeds directly and shows reliably. If the
+            // fetch fails, we just omit the thumbnail rather than show a
+            // broken black box.
+            let thumbBuffer;
+            if (thumbnail) {
+                try {
+                    const { data } = await axios.get(thumbnail, {
+                        responseType: "arraybuffer",
+                        timeout: 8000,
+                        headers: { "User-Agent": "Mozilla/5.0" },
+                    });
+                    thumbBuffer = Buffer.from(data);
+                } catch (_) {
+                    thumbBuffer = undefined;
+                }
+            }
 
-            // Also send as document for easy download
-            await Guru.sendMessage(
-                from,
-                {
-                    document: { url },
-                    mimetype: "audio/mpeg",
-                    fileName: `${(title || query).replace(/[<>:"/\\|?*]/g, "_")}.mp3`,
-                    caption: fmt("PLAY", [
-                        `🎵 ${title || query}`,
-                    ], botFooter),
+            const audioContext = thumbBuffer ? {
+                externalAdReply: {
+                    title: (title || query).substring(0, 30),
+                    body: botName || "ULTRA GURU MD",
+                    thumbnail: thumbBuffer,
+                    sourceUrl: sourceUrl || url,
+                    mediaType: 1,
+                    renderLargerThumbnail: true,
                 },
-                { quoted: mek }
-            );
+            } : undefined;
+
+            // Send the playable audio and the downloadable document at the
+            // same time instead of one after another — they're independent
+            // uploads of the same remote file, so running them in parallel
+            // roughly halves the wait compared to doing them sequentially.
+            await Promise.all([
+                Guru.sendMessage(
+                    from,
+                    {
+                        audio: { url },
+                        mimetype: "audio/mpeg",
+                        ptt: false,
+                        fileName: `${(title || query).replace(/[^\w\s.-]/g, "")}.mp3`,
+                        contextInfo: audioContext,
+                    },
+                    { quoted: mek }
+                ),
+                Guru.sendMessage(
+                    from,
+                    {
+                        document: { url },
+                        mimetype: "audio/mpeg",
+                        fileName: `${(title || query).replace(/[<>:"/\\|?*]/g, "_")}.mp3`,
+                        caption: fmt("PLAY", [
+                            `🎵 ${title || query}`,
+                        ], botFooter),
+                    },
+                    { quoted: mek }
+                ),
+            ]);
 
             await react("✅");
         } catch (err) {
