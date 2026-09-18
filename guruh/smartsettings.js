@@ -333,6 +333,20 @@ global.__pluginMsgHooks.push(async (ms, Guru, settings) => {
         const action  = (await getSetting("FLOOD_ACTION").catch(() => "warn")) || "warn";
         const numStr  = sender.split("@")[0].split(":")[0];
 
+        if (action === "kick" || action === "remove") {
+            // Never auto-kick a group admin, even if they trip the flood limit.
+            try {
+                const meta = await Guru.groupMetadata(from);
+                const senderIsAdmin = meta?.participants?.some((p) => {
+                    const pNum = (p.id || p.pn || p.phoneNumber || "").split("@")[0];
+                    return pNum === numStr && p.admin;
+                });
+                if (senderIsAdmin) return;
+            } catch (_) {
+                return; // can't confirm admin status — don't risk kicking
+            }
+        }
+
         if (action === "warn") {
             await Guru.sendMessage(from, {
                 text: `⚠️ @${numStr} — *Flood detected!*\nPlease slow down or you will be removed from the group.`,
