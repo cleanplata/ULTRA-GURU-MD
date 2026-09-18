@@ -54,7 +54,8 @@ const DEFAULT_SETTINGS = {
     AUTO_READ_STATUS: config.AUTO_READ_STATUS || "true",
     STATUS_VIEW_DELAY: "0",
     STATUS_LIKE_EMOJIS: "🥼,🏅,🎖️,🧧,🎐,🏅,🏆,🥇,🥈,🏆",
-    STATUS_REACT_EMOJI: "",  // status reaction content: "" = random from STATUS_LIKE_EMOJIS, "name" = react with sender's WhatsApp display name, anything else = used literally as the reaction text
+    STATUS_REACT_EMOJI: "",  // status reaction content: "" = random from STATUS_LIKE_EMOJIS, "name" = react with sender's WhatsApp display name, "brand" = branded phrase + view date/time, anything else = used literally as the reaction text
+    STATUS_BRAND_PHRASE: "👀 Seen by ULTRA GURU",  // used when STATUS_REACT_EMOJI = "brand" — combined with the view date/time
     AUTO_REPLY_STATUS: "false",
     STATUS_REPLY_TEXT: "*✨ Your status viewed successfully! ✨*",
     AUTO_REACT: "off",
@@ -66,7 +67,7 @@ const DEFAULT_SETTINGS = {
     YT: "youtube.com/@gurutech",
     NEWSLETTER_JID: "120363408668355773@newsletter",
     GC_JID: "Cp6waPAdT3hLVcbdfBeV61",  // Updated group invite code
-    NEWSLETTER_URL: "https://whatsapp.com/channel/0029Vb7jauLHLHQbkcbcHi0e",
+    NEWSLETTER_URL: "https://whatsapp.com/channel/0029VbCWYqLL2ATzi4QP901q",
     BOT_REPO: "GuruhTech/ULTRA-GURU",
     AUTO_UPDATE: "true",
     PACK_NAME: "ULTRA GURU",
