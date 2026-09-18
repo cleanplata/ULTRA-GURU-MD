@@ -476,6 +476,23 @@ gmd(
     if (!target) return reply("❌ Tag a user: .silence @user 5");
     if (minutes < 1 || minutes > 1440) return reply("❌ Minutes must be 1–1440");
 
+    try {
+      const meta = await Guru.groupMetadata(from);
+      const targetNum = target.split("@")[0];
+      const targetIsAdmin = meta?.participants?.some((p) => {
+        const pNum = (p.id || p.pn || p.phoneNumber || "").split("@")[0];
+        return pNum === targetNum && p.admin;
+      });
+      if (targetIsAdmin) {
+        await react("❌");
+        return reply("❌ That user is a group admin and cannot be silenced/removed this way.");
+      }
+    } catch (_) {
+      // If metadata fetch fails, fall through — groupParticipantsUpdate below
+      // will still fail safely against WhatsApp's own admin protections.
+    }
+
+
     await react("🔇");
     const expiry = Date.now() + minutes * 60 * 1000;
     userSilence.set(target, expiry);
