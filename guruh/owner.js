@@ -992,7 +992,23 @@ gmd(
 
     if (rawTarget.endsWith("@lid")) {
       const converted = convertLidToJid(rawTarget);
-      if (converted) rawTarget = converted;
+      if (converted && !converted.endsWith("@lid")) {
+        rawTarget = converted;
+      } else {
+        // Not in the local cache — resolve it live instead of silently
+        // treating the internal @lid number as if it were a phone number.
+        try {
+          const resolved = await Guru.getJidFromLid(rawTarget);
+          if (resolved) rawTarget = resolved;
+        } catch (_) {}
+      }
+    }
+
+    if (rawTarget.endsWith("@lid")) {
+      await react("❌");
+      return reply(
+        "❌ Could not resolve that user's real number (still shows as @lid). Try again in a moment, or block using their phone number directly.",
+      );
     }
 
     const num = rawTarget.split("@")[0].replace(/[^0-9]/g, "");
@@ -1054,7 +1070,21 @@ gmd(
 
     if (rawTarget.endsWith("@lid")) {
       const converted = convertLidToJid(rawTarget);
-      if (converted) rawTarget = converted;
+      if (converted && !converted.endsWith("@lid")) {
+        rawTarget = converted;
+      } else {
+        try {
+          const resolved = await Guru.getJidFromLid(rawTarget);
+          if (resolved) rawTarget = resolved;
+        } catch (_) {}
+      }
+    }
+
+    if (rawTarget.endsWith("@lid")) {
+      await react("❌");
+      return reply(
+        "❌ Could not resolve that user's real number (still shows as @lid). Try again in a moment, or unblock using their phone number directly.",
+      );
     }
 
     const num = rawTarget.split("@")[0].replace(/[^0-9]/g, "");
