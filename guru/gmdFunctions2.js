@@ -38,7 +38,12 @@ const isAnyLink = (message) => {
     if (!message || typeof message !== 'string') return false;
     if (/https?:\/\/[^\s]+/i.test(message)) return true;
     if (/(?:^|\s)www\.[a-z0-9-]+\.[a-z]{2,}[^\s]*/i.test(message)) return true;
-    if (/(?:^|\s)(?:chat\.whatsapp\.com|wa\.me|t\.me|youtu\.be|bit\.ly|tinyurl\.com|goo\.gl|rb\.gy|is\.gd|shorturl\.at|cutt\.ly|ow\.ly)\/[^\s]*/i.test(message)) return true;
+    if (/(?:^|\s)(?:chat\.whatsapp\.com|wa\.me|t\.me|youtu\.be|bit\.ly|tinyurl\.com|goo\.gl|rb\.gy|is\.gd|shorturl\.at|cutt\.ly|ow\.ly|linktr\.ee|telegra\.ph|discord\.gg|discord\.com\/invite|s\.id|v\.gd|tiny\.cc|rebrand\.ly|shorte\.st|adf\.ly|qr\.ae|lnkd\.in|buff\.ly|cli\.re|shrtco\.de)\/[^\s]*/i.test(message)) return true;
+    // Bare domains typed without http/www, e.g. "check example.com/promo" or
+    // a standalone "example.io" — catches links that skip the protocol.
+    if (/(?:^|\s)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.(?:com|net|org|io|me|co|xyz|info|biz|gg|app|link|site|online|store|shop|live|click|cc|tv|vip|top|pro|club|us|uk|in|ng|za|ke)(?:\/[^\s]*)?(?:\s|$)/i.test(message)) return true;
+    // Obfuscated domains — "example dot com", "example[.]com", "example (.) com"
+    if (/[a-z0-9-]{2,}\s*(?:\[\.\]|\(\.\)|\bdot\b)\s*(?:com|net|org|io|me|co|gg|app)\b/i.test(message)) return true;
     return false;
 };
 
@@ -396,9 +401,18 @@ const GuruAntibad = async (Guru, message, getGroupMetadata) => {
 };
 
 // ─── ANTI-BOT: kick non-admins who send bot commands in groups ────────────────
-// Detects any message starting with a common bot prefix (.  /  !  #  $  ?  ;  ~)
+// Detects any message starting with a common bot prefix (.  /  !  #  $  ?  ;  ~  etc.)
 // Also catches users operating public bots (their bot replies trigger the same check).
-const BOT_PREFIXES = /^[./!#$?;~\\^%@&*+=|`]/;
+const BOT_PREFIXES = /^[./!#$?;~\\^%@&*+=|`>]/;
+
+// Word-only trigger commands other bots commonly respond to WITHOUT a symbol
+// prefix (e.g. plain "menu", "ping"). Matched as the ENTIRE message only
+// (not a substring), so an ordinary sentence that happens to contain one of
+// these words is never affected — only someone sending just that one word.
+const BOT_TRIGGER_WORDS = new Set([
+    'ping', 'alive', 'menu', 'owner', 'runtime', 'uptime',
+    'source', 'script', 'repo', 'jid', 'speed',
+]);
 
 const GuruAntiBot = async (Guru, message, getGroupMetadata) => {
     try {
@@ -419,7 +433,9 @@ const GuruAntiBot = async (Guru, message, getGroupMetadata) => {
             ? message.message.conversation
             : (message.message[msgType]?.text || message.message[msgType]?.caption || '');
 
-        if (!body || !BOT_PREFIXES.test(body.trim())) return;
+        const trimmed = (body || '').trim();
+        const isTriggerWord = trimmed && BOT_TRIGGER_WORDS.has(trimmed.toLowerCase());
+        if (!trimmed || (!BOT_PREFIXES.test(trimmed) && !isTriggerWord)) return;
 
         // Resolve sender JID
         let sender = message.key.participantPn || message.key.participant || message.participant;
