@@ -968,64 +968,68 @@ gmd(
     } = conText;
     const { isJidGroup } = require("@whiskeysockets/baileys");
     const { convertLidToJid } = require("../guru/connection/serializer");
+    const { resolveTargetJid } = require("../guru/connection/lidResolver");
 
     if (!isSuperUser) return reply("❌ Owner Only Command!");
 
-    let targetJid;
-    let rawTarget;
-
-    if (quotedUser) {
-      rawTarget = quotedUser;
-    } else if (mentionedJid && mentionedJid.length > 0) {
-      rawTarget = mentionedJid[0];
-    } else if (args[0]) {
-      rawTarget = args[0];
-    } else if (!isJidGroup(from)) {
-      rawTarget = from;
-    }
+    // Who are we targeting? Priority: reply > mention > typed number > (in a
+    // DM with none of those) the person you're chatting with.
+    let rawTarget = null;
+    if (quotedUser) rawTarget = quotedUser;
+    else if (mentionedJid?.[0]) rawTarget = mentionedJid[0];
+    else if (args[0]?.replace(/\D/g, "")) rawTarget = args[0].replace(/\D/g, "") + "@s.whatsapp.net";
+    else if (!isJidGroup(from)) rawTarget = from;
 
     if (!rawTarget) {
-      return reply(
-        "❌ Please reply to a message, mention someone, or provide a number!",
-      );
+      await react("❌");
+      return reply("❌ Reply to a message, mention someone, or give a number to block.");
     }
 
-    if (rawTarget.endsWith("@lid")) {
-      const converted = convertLidToJid(rawTarget);
-      if (converted && !converted.endsWith("@lid")) {
-        rawTarget = converted;
-      } else {
-        // Not in the local cache — resolve it live instead of silently
-        // treating the internal @lid number as if it were a phone number.
-        try {
-          const resolved = await Guru.getJidFromLid(rawTarget);
-          if (resolved) rawTarget = resolved;
-        } catch (_) {}
-      }
+    // Resolve @lid -> real JID using (in order): the local cache, the
+    // group's participant list, then a live lookup as a last resort.
+    let blockJid = convertLidToJid(rawTarget);
+    if (blockJid?.endsWith("@lid")) blockJid = null;
+
+    if (!blockJid && isJidGroup(from)) {
+      try {
+        groupCache.del(from); // bust the 5-min cache so we get fresh data
+        const meta = await getGroupMetadata(Guru, from);
+        blockJid = resolveTargetJid(rawTarget, meta?.participants || []);
+      } catch (_) {}
     }
 
-    if (rawTarget.endsWith("@lid")) {
+    if (!blockJid && rawTarget.endsWith("@lid")) {
+      try {
+        blockJid = await Guru.getJidFromLid(rawTarget);
+      } catch (_) {}
+    }
+
+    if (!blockJid) blockJid = !rawTarget.endsWith("@lid") ? rawTarget : null;
+
+    if (!blockJid) {
       await react("❌");
       return reply(
-        "❌ Could not resolve that user's real number (still shows as @lid). Try again in a moment, or block using their phone number directly.",
+        "❌ Could not resolve that user's real number — it's still an internal @lid ID.\n\n" +
+          "This can happen if they've hidden their number in Privacy settings (in which case it can't be resolved at all), or the mapping just hasn't synced yet. Try again shortly, or block them with their phone number directly: `.block 15551234567`",
       );
     }
 
-    const num = rawTarget.split("@")[0].replace(/[^0-9]/g, "");
+    const num = blockJid.split("@")[0].replace(/\D/g, "");
     if (!num || num.length < 6) {
       return reply("❌ Could not determine valid phone number!");
     }
-    targetJid = `${num}@s.whatsapp.net`;
+    blockJid = `${num}@s.whatsapp.net`;
 
-    if (superUser && superUser.includes(targetJid)) {
+    const botNum = (Guru.user?.id || "").split(":")[0].split("@")[0].replace(/\D/g, "");
+    if ((superUser && superUser.includes(blockJid)) || (botNum && num === botNum)) {
       await react("❌");
-      return reply("❌ I cannot block my creator or sudo users!");
+      return reply("❌ I cannot block my creator, sudo users, or myself!");
     }
 
     try {
-      await Guru.updateBlockStatus(targetJid, "block");
+      await Guru.updateBlockStatus(blockJid, "block");
       await react("✅");
-      return reply(`✅ Blocked @${num}`, { mentions: [targetJid] });
+      return reply(`✅ Blocked @${num}`, { mentions: [blockJid] });
     } catch (error) {
       await react("❌");
       return reply(`❌ Failed to block: ${error.message}`);
@@ -1046,57 +1050,58 @@ gmd(
       conText;
     const { isJidGroup } = require("@whiskeysockets/baileys");
     const { convertLidToJid } = require("../guru/connection/serializer");
+    const { resolveTargetJid } = require("../guru/connection/lidResolver");
 
     if (!isSuperUser) return reply("❌ Owner Only Command!");
 
-    let targetJid;
-    let rawTarget;
-
-    if (quotedUser) {
-      rawTarget = quotedUser;
-    } else if (mentionedJid && mentionedJid.length > 0) {
-      rawTarget = mentionedJid[0];
-    } else if (args[0]) {
-      rawTarget = args[0];
-    } else if (!isJidGroup(from)) {
-      rawTarget = from;
-    }
+    let rawTarget = null;
+    if (quotedUser) rawTarget = quotedUser;
+    else if (mentionedJid?.[0]) rawTarget = mentionedJid[0];
+    else if (args[0]?.replace(/\D/g, "")) rawTarget = args[0].replace(/\D/g, "") + "@s.whatsapp.net";
+    else if (!isJidGroup(from)) rawTarget = from;
 
     if (!rawTarget) {
-      return reply(
-        "❌ Please reply to a message, mention someone, or provide a number!",
-      );
+      await react("❌");
+      return reply("❌ Reply to a message, mention someone, or give a number to unblock.");
     }
 
-    if (rawTarget.endsWith("@lid")) {
-      const converted = convertLidToJid(rawTarget);
-      if (converted && !converted.endsWith("@lid")) {
-        rawTarget = converted;
-      } else {
-        try {
-          const resolved = await Guru.getJidFromLid(rawTarget);
-          if (resolved) rawTarget = resolved;
-        } catch (_) {}
-      }
+    let unblockJid = convertLidToJid(rawTarget);
+    if (unblockJid?.endsWith("@lid")) unblockJid = null;
+
+    if (!unblockJid && isJidGroup(from)) {
+      try {
+        groupCache.del(from);
+        const meta = await getGroupMetadata(Guru, from);
+        unblockJid = resolveTargetJid(rawTarget, meta?.participants || []);
+      } catch (_) {}
     }
 
-    if (rawTarget.endsWith("@lid")) {
+    if (!unblockJid && rawTarget.endsWith("@lid")) {
+      try {
+        unblockJid = await Guru.getJidFromLid(rawTarget);
+      } catch (_) {}
+    }
+
+    if (!unblockJid) unblockJid = !rawTarget.endsWith("@lid") ? rawTarget : null;
+
+    if (!unblockJid) {
       await react("❌");
       return reply(
-        "❌ Could not resolve that user's real number (still shows as @lid). Try again in a moment, or unblock using their phone number directly.",
+        "❌ Could not resolve that user's real number — it's still an internal @lid ID.\n\n" +
+          "This can happen if they've hidden their number in Privacy settings (in which case it can't be resolved at all), or the mapping just hasn't synced yet. Try again shortly, or unblock them with their phone number directly: `.unblock 15551234567`",
       );
     }
 
-    const num = rawTarget.split("@")[0].replace(/[^0-9]/g, "");
+    const num = unblockJid.split("@")[0].replace(/\D/g, "");
     if (!num || num.length < 6) {
       return reply("❌ Could not determine valid phone number!");
     }
-    targetJid = `${num}@s.whatsapp.net`;
+    unblockJid = `${num}@s.whatsapp.net`;
 
     try {
-      await Guru.updateBlockStatus(targetJid, "unblock");
+      await Guru.updateBlockStatus(unblockJid, "unblock");
       await react("✅");
-      return reply(`✅ Unblocked @${num}`, { mentions: [targetJid] });
+      return reply(`✅ Unblocked @${num}`, { mentions: [unblockJid] });
     } catch (error) {
       await react("❌");
       return reply(`❌ Failed to unblock: ${error.message}`);
