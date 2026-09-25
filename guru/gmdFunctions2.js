@@ -871,6 +871,14 @@ const GuruPresence = async (Guru, jid) => {
                 return;
         }
 
+        // FREEZE_LAST_SEEN overrides an "online" DM/GC presence setting —
+        // sending "available" here would refresh last-seen the same way the
+        // keepalive would, defeating the whole point of freezing it.
+        if (whatsappPresence === "available") {
+            const frozen = await getSetting("FREEZE_LAST_SEEN").catch(() => "false");
+            if (frozen === "true") return;
+        }
+
         await Guru.sendPresenceUpdate(whatsappPresence, jid);
         logger.debug(`${isGroup ? 'Group' : 'Chat'} presence activated: ${presence} for ${jid}`);
         presenceTimers.set(jid, setTimeout(() => {
