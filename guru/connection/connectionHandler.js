@@ -75,7 +75,13 @@ const startWatchdog = (Guru, startGuru) => {
         // ── 2. Real keepalive — push a packet through WhatsApp's protocol ───
         // Errors immediately if the connection is truly dead (not just quiet)
         try {
-            await Guru.sendPresenceUpdate("available");
+            const { getSetting } = require("../database/settings");
+            const freezeLastSeen = await getSetting("FREEZE_LAST_SEEN").catch(() => "false");
+            // "available" is what makes WhatsApp refresh your last-seen to now.
+            // "unavailable" still round-trips a real packet through the socket
+            // (so it's just as valid a liveness check) without doing that.
+            const keepaliveState = freezeLastSeen === "true" ? "unavailable" : "available";
+            await Guru.sendPresenceUpdate(keepaliveState);
         } catch (err) {
             return forceReconnect(Guru, startGuru, `Keepalive failed: ${err.message}`);
         }
