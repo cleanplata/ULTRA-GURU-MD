@@ -297,8 +297,8 @@ async function startGuru() {
         });
 
         // Cleanup on exit
-        process.on("SIGINT",  () => store?.destroy());
-        process.on("SIGTERM", () => store?.destroy());
+        process.on("SIGINT",  () => { store?.destroy(); process.exit(0); });
+        process.on("SIGTERM", () => { store?.destroy(); process.exit(0); });
 
     } catch (err) {
         console.error("❌ Socket init error:", err.message);
