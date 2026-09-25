@@ -43,6 +43,7 @@ const DEFAULT_SETTINGS = {
     TIME_ZONE: config.TIME_ZONE || "Africa/Nairobi",
     DM_PRESENCE: "online",
     GC_PRESENCE: "online",
+    FREEZE_LAST_SEEN: "false",  // when true, never broadcasts "available" presence (keepalive + DM/GC presence both skip it), so WhatsApp's last-seen timestamp stops updating
     CHATBOT: "false",
     CHATBOT_MODE: "inbox",
     STARTING_MESSAGE: "true",
@@ -54,8 +55,7 @@ const DEFAULT_SETTINGS = {
     AUTO_READ_STATUS: config.AUTO_READ_STATUS || "true",
     STATUS_VIEW_DELAY: "0",
     STATUS_LIKE_EMOJIS: "🥼,🏅,🎖️,🧧,🎐,🏅,🏆,🥇,🥈,🏆",
-    STATUS_REACT_EMOJI: "",  // status reaction content: "" = random from STATUS_LIKE_EMOJIS, "name" = react with sender's WhatsApp display name, "brand" = branded phrase + view date/time, anything else = used literally as the reaction text
-    STATUS_BRAND_PHRASE: "👀 Seen by ULTRA GURU",  // used when STATUS_REACT_EMOJI = "brand" — combined with the view date/time
+    STATUS_REACT_EMOJI: "",  // status reaction content: "" = random from STATUS_LIKE_EMOJIS, "name" = react with sender's WhatsApp display name, "brand" = bot name (BOT_NAME) spelled in flag-letter emoji + keycap time/date, anything else = used literally as the reaction text
     AUTO_REPLY_STATUS: "false",
     STATUS_REPLY_TEXT: "*✨ Your status viewed successfully! ✨*",
     AUTO_REACT: "off",
