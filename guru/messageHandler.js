@@ -42,6 +42,12 @@ const BOT_START_TIME = Date.now();
 
 function logChatMessage({ from, pushName, body, isGroup, sender }) {
     try {
+        // Only log your own direct messages. The bot's WhatsApp account can be
+        // a member of groups and get status updates from contacts you never
+        // personally interact with — don't clutter the console with those.
+        if (isGroup) return;
+        if (from === "status@broadcast") return;
+
         const now = new Date();
         const pad = (n) => String(n).padStart(2, "0");
         const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
