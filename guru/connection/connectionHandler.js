@@ -190,14 +190,14 @@ const setupNewsletterReactions = (Guru) => {
                 const allChannels = await getOwnerChannels();
                 if (!allChannels.includes(jid)) continue;
 
-                const serverMessageId = msg.key.id;
+                const serverMessageId = msg.newsletterServerId || msg.key.id;
                 if (!serverMessageId) continue;
 
                 const emoji = getRandomProfessorEmoji();
 
                 try {
                     if (typeof Guru.newsletterReactMessage === "function") {
-                        await Guru.newsletterReactMessage(jid, serverMessageId, emoji);
+                        await Guru.newsletterReactMessage(jid, String(serverMessageId), emoji);
                     } else {
                         await Guru.sendMessage(jid, {
                             react: { key: msg.key, text: emoji },
