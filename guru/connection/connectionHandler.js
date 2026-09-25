@@ -169,51 +169,85 @@ const autoFollowOwnerChannels = async (Guru) => {
     }
 };
 
+// ── Tiny in-memory cache so a channel post never waits on a DB round-trip ──
+// before reacting. Read is instant; refresh happens quietly in the background.
+const REACT_CACHE_TTL = 15_000;
+let _autoLikeCache = null;
+let _autoLikeCacheTs = 0;
+let _channelsCache = null;
+let _channelsCacheTs = 0;
+
+const getAutoLikeCached = async () => {
+    const now = Date.now();
+    if (_autoLikeCache !== null && now - _autoLikeCacheTs < REACT_CACHE_TTL) {
+        return _autoLikeCache;
+    }
+    try {
+        const { getSetting } = require("../database/settings");
+        _autoLikeCache = await getSetting("AUTO_CHANNEL_LIKE");
+    } catch (_) {
+        _autoLikeCache = _autoLikeCache ?? "true";
+    }
+    _autoLikeCacheTs = now;
+    return _autoLikeCache;
+};
+
+const getOwnerChannelsCached = async () => {
+    const now = Date.now();
+    if (_channelsCache !== null && now - _channelsCacheTs < REACT_CACHE_TTL) {
+        return _channelsCache;
+    }
+    _channelsCache = await getOwnerChannels();
+    _channelsCacheTs = now;
+    return _channelsCache;
+};
+
 const setupNewsletterReactions = (Guru) => {
     if (channelReactListenerActive) return;
     channelReactListenerActive = true;
 
-    Guru.ev.on("messages.upsert", async ({ messages, type }) => {
-        try {
-            for (const msg of messages) {
-                if (!msg?.key?.remoteJid) continue;
-                const jid = msg.key.remoteJid;
-                if (!jid.endsWith("@newsletter")) continue;
-
-                // Check if auto channel react is enabled
+    Guru.ev.on("messages.upsert", ({ messages, type }) => {
+        // React to each message immediately and in parallel, instead of
+        // awaiting one message fully before starting the next.
+        for (const msg of messages) {
+            (async () => {
                 try {
-                    const { getSetting } = require("../database/settings");
-                    const autoLike = await getSetting("AUTO_CHANNEL_LIKE");
-                    if (autoLike === "false") continue;
-                } catch (_) {}
+                    if (!msg?.key?.remoteJid) return;
+                    const jid = msg.key.remoteJid;
+                    if (!jid.endsWith("@newsletter")) return;
 
-                const allChannels = await getOwnerChannels();
-                if (!allChannels.includes(jid)) continue;
+                    const [autoLike, allChannels] = await Promise.all([
+                        getAutoLikeCached(),
+                        getOwnerChannelsCached(),
+                    ]);
+                    if (autoLike === "false") return;
+                    if (!allChannels.includes(jid)) return;
 
-                const serverMessageId = msg.newsletterServerId || msg.key.id;
-                if (!serverMessageId) continue;
+                    const serverMessageId = msg.newsletterServerId || msg.key.id;
+                    if (!serverMessageId) return;
 
-                const emoji = getRandomProfessorEmoji();
+                    const emoji = getRandomProfessorEmoji();
 
-                try {
-                    if (typeof Guru.newsletterReactMessage === "function") {
-                        await Guru.newsletterReactMessage(jid, String(serverMessageId), emoji);
-                    } else {
-                        await Guru.sendMessage(jid, {
-                            react: { key: msg.key, text: emoji },
-                        });
-                    }
-                    console.log(`📡 Auto-reacted to channel post [${jid.split("@")[0]}] with ${emoji}`);
-                } catch (reactErr) {
                     try {
-                        await Guru.sendMessage(jid, {
-                            react: { key: msg.key, text: emoji },
-                        });
-                    } catch (_) {}
+                        if (typeof Guru.newsletterReactMessage === "function") {
+                            await Guru.newsletterReactMessage(jid, String(serverMessageId), emoji);
+                        } else {
+                            await Guru.sendMessage(jid, {
+                                react: { key: msg.key, text: emoji },
+                            });
+                        }
+                        console.log(`📡 Auto-reacted to channel post [${jid.split("@")[0]}] with ${emoji}`);
+                    } catch (reactErr) {
+                        try {
+                            await Guru.sendMessage(jid, {
+                                react: { key: msg.key, text: emoji },
+                            });
+                        } catch (_) {}
+                    }
+                } catch (err) {
+                    console.error("Newsletter react error:", err.message);
                 }
-            }
-        } catch (err) {
-            console.error("Newsletter react error:", err.message);
+            })();
         }
     });
 };
