@@ -1589,8 +1589,17 @@ const setupVVTracker = (Guru) => {
 
                 const from = msg.key.remoteJid;
                 const msgContent = msg.message;
-                const senderNum = (msg.key.participant || msg.key.remoteJid || "").split("@")[0].split(":")[0];
-                // Send to the person who triggered the save, not the hardcoded owner
+                // Send to whoever actually triggered the save (react/reply),
+                // not the hardcoded owner. In a group, that's msg.key.participant.
+                // In a personal 1:1 DM there is no participant field at all, and
+                // when YOU are the one reacting/replying (msg.key.fromMe), the
+                // remoteJid is the OTHER person's number, not yours — so falling
+                // back to remoteJid there would send the recovered media back
+                // into the same chat with them instead of to your own inbox.
+                const botNum = (Guru.user?.id || "").split(":")[0].split("@")[0];
+                const senderNum = msg.key.fromMe
+                    ? botNum
+                    : (msg.key.participant || msg.key.remoteJid || "").split("@")[0].split(":")[0];
                 const senderDmJid = `${senderNum}@s.whatsapp.net`;
 
                 // Case 1: Reaction to a message — look up the original in the store
