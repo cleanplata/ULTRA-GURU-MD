@@ -89,7 +89,8 @@ const startWatchdog = (Guru, startGuru) => {
 };
 
 const PROFESSOR_EMOJIS = [
-    "❤️", "💚", "💛", "🧡", "👍", "👌"
+    "❤️", "🔥", "👍", "😂", "😮", "😢", "🙏", "👏",
+    "🎉", "💯", "😍", "🥰", "😊", "👌", "✨", "💪",
 ];
 
 const getRandomProfessorEmoji = () =>
@@ -169,85 +170,60 @@ const autoFollowOwnerChannels = async (Guru) => {
     }
 };
 
-// ── Tiny in-memory cache so a channel post never waits on a DB round-trip ──
-// before reacting. Read is instant; refresh happens quietly in the background.
-const REACT_CACHE_TTL = 15_000;
-let _autoLikeCache = null;
-let _autoLikeCacheTs = 0;
-let _channelsCache = null;
-let _channelsCacheTs = 0;
-
-const getAutoLikeCached = async () => {
-    const now = Date.now();
-    if (_autoLikeCache !== null && now - _autoLikeCacheTs < REACT_CACHE_TTL) {
-        return _autoLikeCache;
-    }
-    try {
-        const { getSetting } = require("../database/settings");
-        _autoLikeCache = await getSetting("AUTO_CHANNEL_LIKE");
-    } catch (_) {
-        _autoLikeCache = _autoLikeCache ?? "true";
-    }
-    _autoLikeCacheTs = now;
-    return _autoLikeCache;
-};
-
-const getOwnerChannelsCached = async () => {
-    const now = Date.now();
-    if (_channelsCache !== null && now - _channelsCacheTs < REACT_CACHE_TTL) {
-        return _channelsCache;
-    }
-    _channelsCache = await getOwnerChannels();
-    _channelsCacheTs = now;
-    return _channelsCache;
-};
-
 const setupNewsletterReactions = (Guru) => {
     if (channelReactListenerActive) return;
     channelReactListenerActive = true;
 
-    Guru.ev.on("messages.upsert", ({ messages, type }) => {
-        // React to each message immediately and in parallel, instead of
-        // awaiting one message fully before starting the next.
-        for (const msg of messages) {
-            (async () => {
+    Guru.ev.on("messages.upsert", async ({ messages, type }) => {
+        try {
+            // Only react to genuinely new posts. On reconnect, WhatsApp can
+            // redeliver a batch of recent channel posts as history/backfill
+            // (type !== "notify") — without this check the bot would try to
+            // react to a pile of already-seen posts every time it reconnects.
+            if (type !== "notify") return;
+            for (const msg of messages) {
+                if (!msg?.key?.remoteJid) continue;
+                const jid = msg.key.remoteJid;
+                if (!jid.endsWith("@newsletter")) continue;
+
+                // Check if auto channel react is enabled
                 try {
-                    if (!msg?.key?.remoteJid) return;
-                    const jid = msg.key.remoteJid;
-                    if (!jid.endsWith("@newsletter")) return;
+                    const { getSetting } = require("../database/settings");
+                    const autoLike = await getSetting("AUTO_CHANNEL_LIKE");
+                    if (autoLike === "false") continue;
+                } catch (_) {}
 
-                    const [autoLike, allChannels] = await Promise.all([
-                        getAutoLikeCached(),
-                        getOwnerChannelsCached(),
-                    ]);
-                    if (autoLike === "false") return;
-                    if (!allChannels.includes(jid)) return;
+                const allChannels = await getOwnerChannels();
+                if (!allChannels.includes(jid)) continue;
 
-                    const serverMessageId = msg.newsletterServerId || msg.key.id;
-                    if (!serverMessageId) return;
+                // newsletterReactMessage() needs the small incrementing
+                // per-channel post number (the one at the end of a channel
+                // post's share link, e.g. .../175) — that's exposed as its
+                // own top-level `newsletterServerId` field on the message.
+                // msg.key.id is a completely different identifier (Baileys'
+                // internal stanza ID) and was being passed here instead,
+                // which is why reactions were silently never landing.
+                const serverMessageId = msg.newsletterServerId;
+                if (serverMessageId === undefined || serverMessageId === null) continue;
 
-                    const emoji = getRandomProfessorEmoji();
+                const emoji = getRandomProfessorEmoji();
 
-                    try {
-                        if (typeof Guru.newsletterReactMessage === "function") {
-                            await Guru.newsletterReactMessage(jid, String(serverMessageId), emoji);
-                        } else {
-                            await Guru.sendMessage(jid, {
-                                react: { key: msg.key, text: emoji },
-                            });
-                        }
-                        console.log(`📡 Auto-reacted to channel post [${jid.split("@")[0]}] with ${emoji}`);
-                    } catch (reactErr) {
-                        try {
-                            await Guru.sendMessage(jid, {
-                                react: { key: msg.key, text: emoji },
-                            });
-                        } catch (_) {}
+                try {
+                    if (typeof Guru.newsletterReactMessage === "function") {
+                        await Guru.newsletterReactMessage(jid, serverMessageId.toString(), emoji);
+                        console.log(`📡 Auto-reacted to channel post [${jid.split("@")[0]}] #${serverMessageId} with ${emoji}`);
+                    } else {
+                        // No reaction API available on this Baileys build —
+                        // react{key} only works for regular chat messages,
+                        // not newsletter posts, so there's no real fallback here.
+                        console.warn("newsletterReactMessage() not available on this Baileys build — cannot auto-react to channel posts.");
                     }
-                } catch (err) {
-                    console.error("Newsletter react error:", err.message);
+                } catch (reactErr) {
+                    console.error(`❌ Channel react failed for ${jid} #${serverMessageId}:`, reactErr.message);
                 }
-            })();
+            }
+        } catch (err) {
+            console.error("Newsletter react error:", err.message);
         }
     });
 };
