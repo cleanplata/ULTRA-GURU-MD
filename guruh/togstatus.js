@@ -24,7 +24,7 @@ const COLORS = {
 gmd(
     {
         pattern: "togstatus",
-        aliases: ["swgc", "groupstatus", "tostatus", "postgroups"],
+        aliases: ["swgc", "groupstatus", "tostatus", "postgroups", "tosgroup"],
         react: "📡",
         category: "group",
         description: "Send text / image / video / audio as group status (admin only). Use 'all' to post to every group (owner only).",
@@ -232,9 +232,27 @@ function buildMsgObj(originalMessage, quotedContent) {
 // handles media upload encryption — unlike the raw generateWAMessageContent
 // + groupStatusMessageV2 approach which gets silently stripped at send time.
 async function groupStatus(conn, jid, sendOpts) {
+    const { resolveTargetJid } = require("../guru/connection/lidResolver");
     const meta = await conn.groupMetadata(jid);
-    const participants = meta.participants.map(p => p.id);
-    if (!participants.length) throw new Error("No participants found in group");
+
+    // WhatsApp's status audience list (statusJidList) is built from real
+    // contact relationships, so it needs actual @s.whatsapp.net JIDs — an
+    // @lid identifier (common now for privacy-enabled participants) isn't a
+    // valid audience entry. p.id was being used directly with no resolution,
+    // so for any group with lid participants, the effective audience could
+    // end up empty — the send call succeeds (no error, "sent!" message shown)
+    // but nobody actually sees it, since nobody valid was ever in the list.
+    const participants = meta.participants
+        .map((p) => {
+            if (p.id && p.id.endsWith("@s.whatsapp.net")) return p.id;
+            const resolved = resolveTargetJid(p.id, meta.participants);
+            return resolved && resolved.endsWith("@s.whatsapp.net") ? resolved : null;
+        })
+        .filter(Boolean);
+
+    if (!participants.length) {
+        throw new Error("No resolvable participants found in group (all show as unresolved @lid — WhatsApp hasn't shared their real numbers with this group yet)");
+    }
     return await conn.sendMessage("status@broadcast", sendOpts, {
         statusJidList: participants,
     });
