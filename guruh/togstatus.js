@@ -34,19 +34,16 @@ gmd(
 
         if (!isGroup) return reply("❌ This command only works in groups!");
 
-        const contextInfo = {
-            forwardingScore: 999,
-            isForwarded: true,
-            forwardedNewsletterMessageInfo: {
-                newsletterJid: newsletterJid || "120363200367779016@newsletter",
-                newsletterName: botName || "ULTRA GURU MD",
-                serverMessageId: 143,
-            },
-            mentionedJid: [mek.key.participant || from],
-        };
-
-        const quickReply = (text) =>
-            Guru.sendMessage(from, { text, contextInfo }, { quoted: mek });
+        // NOTE: this used to attach a crafted "Forwarded many times" badge
+        // (forwardedNewsletterMessageInfo with a hardcoded, fake
+        // serverMessageId) to every reply this command sends. That's forged
+        // provenance metadata — claiming the message came from a channel
+        // post that doesn't exist — which WhatsApp's anti-spoofing systems
+        // can reasonably treat as abusive and respond to by resetting the
+        // connection. Since every code path in this command sends at least
+        // one reply, that reliably reproduced on every run. Just use the
+        // bot's normal reply instead; there's no real need for the badge.
+        const quickReply = (text) => reply(text);
 
         try {
             // ── ADMIN CHECK ──────────────────────────────────────────────────
