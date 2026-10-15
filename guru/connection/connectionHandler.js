@@ -170,56 +170,93 @@ const autoFollowOwnerChannels = async (Guru) => {
     }
 };
 
+// Tracks server IDs we've already reacted to (per channel), so a reconnect
+// redelivering recent posts as history/backfill doesn't cause duplicate
+// react attempts. Capped so it can't grow forever on a long-running process.
+const reactedPosts = new Set();
+const markReacted = (jid, serverId) => {
+    const key = `${jid}:${serverId}`;
+    if (reactedPosts.has(key)) return false;
+    reactedPosts.add(key);
+    if (reactedPosts.size > 2000) {
+        const first = reactedPosts.values().next().value;
+        reactedPosts.delete(first);
+    }
+    return true;
+};
+
 const setupNewsletterReactions = (Guru) => {
     if (channelReactListenerActive) return;
     channelReactListenerActive = true;
 
     Guru.ev.on("messages.upsert", async ({ messages, type }) => {
         try {
-            // Only react to genuinely new posts. On reconnect, WhatsApp can
-            // redeliver a batch of recent channel posts as history/backfill
-            // (type !== "notify") — without this check the bot would try to
-            // react to a pile of already-seen posts every time it reconnects.
-            if (type !== "notify") return;
             for (const msg of messages) {
                 if (!msg?.key?.remoteJid) continue;
                 const jid = msg.key.remoteJid;
                 if (!jid.endsWith("@newsletter")) continue;
 
+                console.log(`📡 Channel message seen: ${jid} (type: ${type}, serverId: ${msg.newsletterServerId})`);
+
                 // Check if auto channel react is enabled
                 try {
                     const { getSetting } = require("../database/settings");
                     const autoLike = await getSetting("AUTO_CHANNEL_LIKE");
-                    if (autoLike === "false") continue;
+                    if (autoLike === "false") {
+                        console.log(`📡 Skipped reacting to ${jid}: AUTO_CHANNEL_LIKE is off`);
+                        continue;
+                    }
                 } catch (_) {}
 
                 const allChannels = await getOwnerChannels();
-                if (!allChannels.includes(jid)) continue;
+                if (!allChannels.includes(jid)) {
+                    console.log(`📡 Skipped reacting to ${jid}: not in the registered channel list (${allChannels.join(", ") || "none set"})`);
+                    continue;
+                }
 
                 // newsletterReactMessage() needs the small incrementing
                 // per-channel post number (the one at the end of a channel
-                // post's share link, e.g. .../175) — that's exposed as its
-                // own top-level `newsletterServerId` field on the message.
-                // msg.key.id is a completely different identifier (Baileys'
-                // internal stanza ID) and was being passed here instead,
-                // which is why reactions were silently never landing.
-                const serverMessageId = msg.newsletterServerId;
-                if (serverMessageId === undefined || serverMessageId === null) continue;
+                // post's share link, e.g. .../175) — exposed as its own
+                // top-level field on the message, though the exact field
+                // name has varied across Baileys forks/versions, so check
+                // every known variant. msg.key.id is a completely different
+                // identifier (Baileys' internal stanza ID) and does NOT work
+                // here.
+                const serverMessageId =
+                    msg.newsletterServerId ??
+                    msg.newsletter_server_id ??
+                    msg.server_id ??
+                    msg.key.server_id;
+                if (serverMessageId === undefined || serverMessageId === null) {
+                    console.log(`📡 Skipped reacting to ${jid}: no server id on this message (fields: ${Object.keys(msg).join(",")}) — likely a system/status event, not a real post`);
+                    continue;
+                }
+
+                if (!markReacted(jid, serverMessageId)) {
+                    console.log(`📡 Skipped reacting to ${jid} #${serverMessageId}: already reacted to this post`);
+                    continue;
+                }
+
+                if (typeof Guru.newsletterReactMessage !== "function") {
+                    console.warn("newsletterReactMessage() not available on this Baileys build — cannot auto-react to channel posts.");
+                    continue;
+                }
 
                 const emoji = getRandomProfessorEmoji();
 
-                try {
-                    if (typeof Guru.newsletterReactMessage === "function") {
+                // Retry a few times with a short delay — a single transient
+                // failure (e.g. the post not being fully settled server-side
+                // yet) shouldn't mean the reaction never lands at all.
+                let attempts = 3;
+                while (attempts-- > 0) {
+                    try {
                         await Guru.newsletterReactMessage(jid, serverMessageId.toString(), emoji);
                         console.log(`📡 Auto-reacted to channel post [${jid.split("@")[0]}] #${serverMessageId} with ${emoji}`);
-                    } else {
-                        // No reaction API available on this Baileys build —
-                        // react{key} only works for regular chat messages,
-                        // not newsletter posts, so there's no real fallback here.
-                        console.warn("newsletterReactMessage() not available on this Baileys build — cannot auto-react to channel posts.");
+                        break;
+                    } catch (reactErr) {
+                        console.warn(`❌ Channel react attempt failed for ${jid} #${serverMessageId} (${3 - attempts}/3): ${reactErr.message}`);
+                        if (attempts > 0) await new Promise((r) => setTimeout(r, 1500));
                     }
-                } catch (reactErr) {
-                    console.error(`❌ Channel react failed for ${jid} #${serverMessageId}:`, reactErr.message);
                 }
             }
         } catch (err) {
