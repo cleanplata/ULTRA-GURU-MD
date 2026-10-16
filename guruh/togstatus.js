@@ -173,6 +173,7 @@ gmd(
             // correct Baileys API for status that properly handles media upload
             // and encryption. statusJidList makes it visible to group members.
             let sent = 0, failed = 0;
+            let lastError = null;
             const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
             for (const gid of targetGroups) {
@@ -180,17 +181,29 @@ gmd(
                     await groupStatus(Guru, gid, sendOpts);
                     sent++;
                     if (targetGroups.length > 1) await delay(800);
-                } catch (_) {
+                } catch (err) {
                     failed++;
+                    lastError = err;
+                    console.error(`[togstatus] Failed for group ${gid}:`, err.message);
                 }
             }
 
-            await react("✅");
             if (broadcastAll) {
+                await react(sent > 0 ? "✅" : "❌");
                 return quickReply(
-                    `✅ *Group status posted!*\n📊 Sent: ${sent} | Failed: ${failed}\n_${mediaType} status delivered to group members_`
+                    `${sent > 0 ? "✅" : "❌"} *Group status broadcast finished.*\n📊 Sent: ${sent} | Failed: ${failed}` +
+                        (failed > 0 && lastError ? `\n_Last error: ${lastError.message}_` : "") +
+                        (sent > 0 ? `\n_${mediaType} status delivered to group members_` : ""),
                 );
             }
+
+            if (sent === 0) {
+                await react("❌");
+                return quickReply(
+                    `❌ Status was NOT sent — it failed silently before.\n_Reason: ${lastError?.message || "unknown error"}_`,
+                );
+            }
+            await react("✅");
             return quickReply(`✅ ${mediaType.charAt(0).toUpperCase() + mediaType.slice(1)} status sent to group!`);
 
         } catch (err) {
