@@ -237,41 +237,17 @@ function buildMsgObj(originalMessage, quotedContent) {
     };
 }
 
-// Post content to status@broadcast with the group's participant list so all
-// group members see it. Uses Baileys' native status pathway which correctly
-// handles media upload encryption — unlike the raw generateWAMessageContent
-// + groupStatusMessageV2 approach which gets silently stripped at send time.
+// Post content tied to the GROUP itself (shows as an update ring on the
+// group's own icon/profile within that group) — NOT fanned out to each
+// member's personal Status tab. That distinction is what statusJidList's
+// contents control: a list of individual members broadcasts it to each of
+// them individually (visible on their personal profile, to all their other
+// contacts too); passing the group's own JID instead ties the update to the
+// group, which is what we actually want here.
 async function groupStatus(conn, jid, sendOpts) {
-    const meta = await conn.groupMetadata(jid);
-
-    // IMPORTANT — this is the opposite of what it looks like it should be:
-    // for LID-migrated accounts, Baileys' internal device lookup for
-    // status@broadcast needs recipients addressed by their @lid, NOT their
-    // real phone JID. Passing phone JIDs for LID-migrated participants
-    // produces an EMPTY device list on Baileys' side — the send call still
-    // resolves successfully (no thrown error), but nothing is actually
-    // delivered to anyone, which is exactly the "says sent, shows nowhere"
-    // symptom this was causing. (Confirmed against a real, recent Baileys
-    // fix for this precise bug: WhiskeySockets/Baileys PR #2841 — "resolve
-    // recipients to LID before device lookup... preventing empty device
-    // lists for PN-addressed recipients".) So: prefer each participant's
-    // @lid when they have one, and only fall back to their plain @s.whatsapp.net
-    // id for participants who aren't LID-migrated at all.
-    const participants = meta.participants
-        .map((p) => {
-            if (p.lid) return p.lid;
-            if (p.id && p.id.endsWith("@lid")) return p.id;
-            if (p.id && p.id.endsWith("@s.whatsapp.net")) return p.id;
-            return null;
-        })
-        .filter(Boolean);
-
-    if (!participants.length) {
-        throw new Error("No usable participant JIDs found in group metadata at all");
-    }
     return await conn.sendMessage("status@broadcast", sendOpts, {
-        statusJidList: participants,
-        broadcast: true, // required alongside statusJidList per Baileys' own docs — was missing entirely
+        statusJidList: [jid],
+        broadcast: true, // required alongside statusJidList per Baileys' own docs
     });
 }
 
