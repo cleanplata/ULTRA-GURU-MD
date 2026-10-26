@@ -257,8 +257,39 @@ async function startGuru() {
         // owner input, so we tag sent IDs here and let handlers check them.
         global._botSentIds = global._botSentIds || new Set();
         const _origSendMessage = GuruSocket.sendMessage.bind(GuruSocket);
-        GuruSocket.sendMessage = async (...args) => {
-            const result = await _origSendMessage(...args);
+        // ── Always attach the "View channel" footer ─────────────────────────
+        // Adds forwardedNewsletterMessageInfo to every outgoing message that
+        // doesn't already carry it (skips reactions, edits, deletes, polls,
+        // status posts and messages sent to channels themselves).
+        const _noChannelKeys = ["react", "delete", "edit", "poll", "pollCreationMessage", "forward", "disappearingMessagesInChat", "protocolMessage", "groupStatusMessage"];
+        GuruSocket.sendMessage = async (jid, content, ...rest) => {
+            try {
+                if (
+                    content && typeof content === "object" &&
+                    typeof jid === "string" &&
+                    jid !== "status@broadcast" && !jid.endsWith("@newsletter") &&
+                    !_noChannelKeys.some((k) => k in content) &&
+                    !content.contextInfo?.forwardedNewsletterMessageInfo
+                ) {
+                    const { getSetting } = require("./guru/database/settings");
+                    const channelJid = (await getSetting("NEWSLETTER_JID")) || "120363431857319034@newsletter";
+                    const botName = (await getSetting("BOT_NAME")) || "𝐔𝐋𝐓𝐑𝐀 𝐆𝐔𝐑𝐔";
+                    content = {
+                        ...content,
+                        contextInfo: {
+                            ...(content.contextInfo || {}),
+                            forwardingScore: content.contextInfo?.forwardingScore || 1,
+                            isForwarded: true,
+                            forwardedNewsletterMessageInfo: {
+                                newsletterJid: channelJid,
+                                newsletterName: botName,
+                                serverMessageId: -1,
+                            },
+                        },
+                    };
+                }
+            } catch (_) { /* never block a send because of the footer */ }
+            const result = await _origSendMessage(jid, content, ...rest);
             const id = result?.key?.id;
             if (id) {
                 global._botSentIds.add(id);
