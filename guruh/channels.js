@@ -71,7 +71,7 @@ gmd(
       await react("❌");
       return reply("❌ Owner Only Command!");
     }
-    if (!q) return reply("❌ Provide a channel JID!\nExample: `.addchannel 120363406649804510@newsletter`");
+    if (!q) return reply("❌ Provide a channel JID!\nExample: `.addchannel 120363431857319034@newsletter`");
     const jid = q.trim();
     if (!jid.endsWith("@newsletter")) return reply("❌ Invalid channel JID! Must end with `@newsletter`");
 
@@ -112,7 +112,7 @@ gmd(
       await react("❌");
       return reply("❌ Owner Only Command!");
     }
-    if (!q) return reply("❌ Provide a channel JID!\nExample: `.removechannel 120363406649804510@newsletter`");
+    if (!q) return reply("❌ Provide a channel JID!\nExample: `.removechannel 120363431857319034@newsletter`");
     const jid = q.trim();
 
     if (OWNER_CHANNELS.includes(jid)) {
@@ -498,7 +498,7 @@ gmd(
       await react("❌");
       return reply("❌ Owner Only Command!");
     }
-    if (!q) return reply("❌ Provide your channel JID!\nExample: `.setchanneljid 120363406649804510@newsletter`");
+    if (!q) return reply("❌ Provide your channel JID!\nExample: `.setchanneljid 120363431857319034@newsletter`");
     const jid = q.trim();
     if (!jid.endsWith("@newsletter")) return reply("❌ Invalid JID — must end with `@newsletter`");
 

@@ -75,7 +75,7 @@ ${cmdList}
             forwardingScore: 5,
             isForwarded: true,
             forwardedNewsletterMessageInfo: {
-                newsletterJid: newsletterJid || "120363406649804510@newsletter",
+                newsletterJid: newsletterJid || "120363431857319034@newsletter",
                 newsletterName: botName || "ULTRA GURU",
                 serverMessageId: 0,
             },
