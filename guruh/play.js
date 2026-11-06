@@ -106,10 +106,7 @@ async function resolveAudio(query, isUrl) {
         return { url, title: data?.title || data?.result?.title || query };
     });
 
-    const startedAt = Date.now();
-    const resolved = await raceChain([...toxicChain, ...legacyChain]);
-    console.log(`[PLAY] resolve result=${resolved ? "ok" : "empty"} mode=${isUrl ? "url" : "search"} elapsedMs=${Date.now() - startedAt}`);
-    return resolved;
+    return raceChain([...toxicChain, ...legacyChain]);
 }
 
 // ── Video API chain ───────────────────────────────────────────────────────────
@@ -188,8 +185,6 @@ gmd(
 
         const query = q.trim();
         const ytUrl = isYtUrl(query);
-        const startedAt = Date.now();
-        console.log(`[PLAY] received mode=${ytUrl ? "url" : "search"} query=${query.slice(0, 120)}`);
 
         await react("⌛");
         await reply(fmt("PLAY", ["Searching and downloading... please wait."], botFooter));
@@ -197,7 +192,6 @@ gmd(
         const resolved = await resolveAudio(query, ytUrl);
 
         if (!resolved) {
-            console.warn(`[PLAY] no-result elapsedMs=${Date.now() - startedAt}`);
             await react("❌");
             return reply(
                 fmt("PLAY", [
@@ -273,9 +267,7 @@ gmd(
             ]);
 
             await react("✅");
-            console.log(`[PLAY] sent title=${(title || query).slice(0, 100)} elapsedMs=${Date.now() - startedAt}`);
         } catch (err) {
-            console.error(`[PLAY] send-failed elapsedMs=${Date.now() - startedAt} error=${err.message}`);
             await react("❌");
             return reply(fmt("PLAY", [`Download failed: ${err.message}`], botFooter));
         }
