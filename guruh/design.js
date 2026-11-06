@@ -8,7 +8,6 @@
 
 const { gmd, commands }                          = require("../guru");
 const { getSetting, setSetting, resetSetting }   = require("../guru/database/settings");
-const { getExpiryStatus }                        = require("../guru/expiry");
 const { S_WHATSAPP_NET }                         = require("@whiskeysockets/baileys");
 const fs   = require("fs").promises;
 const path = require("path");
@@ -103,13 +102,6 @@ async function buildMenuData(conText) {
     const greeting   = GREETINGS[Math.floor(Math.random() * GREETINGS.length)];
     const tGreet     = timeGreeting(hour);
 
-    // Expiry — reads from env var + DB fallback
-    const expiryStatus = await getExpiryStatus();
-    const expiryLine   = expiryStatus.line;
-    const expiryDetail = expiryStatus.daysLeft !== null
-        ? (expiryStatus.daysLeft <= 0 ? 'EXPIRED' : `${expiryStatus.daysLeft}d remaining`)
-        : 'Lifetime · Always active';
-
     const sortedCats = getSortedCategories();
 
     // Quoted blockquote style: > 01  LABEL
@@ -130,7 +122,6 @@ async function buildMenuData(conText) {
         botCaption: botCaption || "",
         newsletterJid,
         uptime, totalCmds, catLines,
-        expiryLine, expiryDetail,
         memBar, memDetail,
         dateStr, timeStr, timeStr24,
         greeting, timeGreet: tGreet,
@@ -146,7 +137,7 @@ const THEMES = {
         name: "🔷 ULTRA",
         description: "Faded blockquote + corner-bracket box style",
         render({ botName, botPrefix, botVersion, botMode, botFooter,
-                  uptime, totalCmds, catLines, expiryLine, numCats,
+                  uptime, totalCmds, catLines, numCats,
                   pushName, memBar, dateStr, timeStr, timeGreet }) {
             const cats = catLines.split("\n").map(l => l.replace(/^> ?/, "> │ ")).join("\n");
             return (
@@ -159,7 +150,6 @@ const THEMES = {
 > │ 🔑  Prefix    ›  *${botPrefix}*
 > │ 🛠️  Mode      ›  *${botMode.toUpperCase()}*
 > │ 💾  RAM       ›  *${memBar}*
-> │ 🔒  Licence   ›  *${expiryLine}*
 > │
 > │ 📋 *CATEGORIES*  ·  _reply 1–${numCats}_
 > │
@@ -173,7 +163,7 @@ ${cats}
         name: "🐾 PANTHER",
         description: "Wakanda-inspired bold blockquote style",
         render({ botName, botPrefix, botVersion, botMode, botFooter,
-                  uptime, totalCmds, catLines, expiryLine, numCats,
+                  uptime, totalCmds, catLines, numCats,
                   pushName, memBar, dateStr, timeStr24, timeGreet }) {
             return (
 `> 🐾 *${botName.toUpperCase()}*
@@ -188,7 +178,6 @@ ${cats}
 > 🛡️  Mode      ›  *${botMode.toUpperCase()}*
 > 📦  Version   ›  *v${botVersion}*
 > 💾  RAM       ›  ${memBar}
-> 🔒  Licence   ›  ${expiryLine}
 > ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 > 🐾 *COMMAND CATEGORIES*
 > _Tap a number  ·  1–${numCats}_
@@ -204,7 +193,7 @@ ${catLines}
         name: "⚡ NEON",
         description: "Cyberpunk electric blockquote style",
         render({ botName, botPrefix, botVersion, botMode, botFooter,
-                  uptime, totalCmds, catLines, expiryLine, memBar, pushName, numCats }) {
+                  uptime, totalCmds, catLines, memBar, pushName, numCats }) {
             return (
 `> ⚡ *${botName.toUpperCase()}*  ⚡
 > ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
@@ -216,7 +205,6 @@ ${catLines}
 > 🛠️  MODE    ⟩  *${botMode.toUpperCase()}*
 > 📦  VER     ⟩  *v${botVersion}*
 > 💾  RAM     ⟩  ${memBar}
-> 🔒  LIC     ⟩  ${expiryLine}
 > ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
 > ⚡ *CATEGORIES*  ·  _reply 1–${numCats}_
 > ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
@@ -231,7 +219,7 @@ ${catLines}
         name: "🪶 MINIMAL",
         description: "Clean blockquote — no clutter",
         render({ botName, botPrefix, botVersion, botMode, botFooter,
-                  uptime, totalCmds, catLines, expiryLine, pushName, numCats }) {
+                  uptime, totalCmds, catLines, pushName, numCats }) {
             return (
 `> 🪶 *${botName.toUpperCase()}*
 > ──────────────────────────────
@@ -241,7 +229,6 @@ ${catLines}
 > 🔑  Prefix    ·  *${botPrefix}*
 > 🛠️  Mode      ·  *${botMode.toUpperCase()}*
 > 📦  Version   ·  *v${botVersion}*
-> 🔒  Licence   ·  ${expiryLine}
 > ──────────────────────────────
 > 📋 *Categories*  ·  _reply 1–${numCats}_
 > ──────────────────────────────
@@ -256,7 +243,7 @@ ${catLines}
         name: "👑 ROYAL",
         description: "Elegant gold-crown blockquote style",
         render({ botName, botPrefix, botVersion, botMode, botFooter,
-                  uptime, totalCmds, catLines, expiryLine, expiryDetail, pushName, numCats }) {
+                  uptime, totalCmds, catLines, pushName, numCats }) {
             return (
 `> 👑 *${botName.toUpperCase()}* 👑
 > ✦ ━━━━━━━━━━━━━━━━━━━━━━━ ✦
@@ -267,8 +254,6 @@ ${catLines}
 > 🔑  Prefix          ›  *${botPrefix}*
 > 🛠️  Mode            ›  *${botMode.toUpperCase()}*
 > 📦  Version         ›  *v${botVersion}*
-> 🔒  Licence         ›  ${expiryLine}
-> 📅  Expiry          ›  _${expiryDetail}_
 > ✦ ━━━━━━━━━━━━━━━━━━━━━━━ ✦
 > 👑 *COMMAND CATEGORIES*
 > _Reply a number to explore  ·  1–${numCats}_
@@ -284,7 +269,7 @@ ${catLines}
         name: "🌌 GALAXY",
         description: "Space & stars blockquote style",
         render({ botName, botPrefix, botVersion, botMode, botFooter,
-                  uptime, totalCmds, catLines, expiryLine, pushName, memBar, numCats }) {
+                  uptime, totalCmds, catLines, pushName, memBar, numCats }) {
             return (
 `> 🌌 *${botName.toUpperCase()}*  🚀
 > ✨ ━━━━━━━━━━━━━━━━━━━━━━━ ✨
@@ -296,7 +281,6 @@ ${catLines}
 > 🛸  Mode      ··  *${botMode.toUpperCase()}*
 > 🌍  Version   ··  *v${botVersion}*
 > 💾  RAM       ··  ${memBar}
-> 🔒  Licence   ··  ${expiryLine}
 > ✨ ━━━━━━━━━━━━━━━━━━━━━━━ ✨
 > 🌌 *WARP TO A CATEGORY*
 > _Reply with a number  ·  1–${numCats}_
@@ -312,7 +296,7 @@ ${catLines}
         name: "🖤 DARK",
         description: "Dark gothic blockquote style",
         render({ botName, botPrefix, botVersion, botMode, botFooter,
-                  uptime, totalCmds, catLines, expiryLine, pushName, memBar, numCats }) {
+                  uptime, totalCmds, catLines, pushName, memBar, numCats }) {
             return (
 `> 🖤 *${botName.toUpperCase()}* 🖤
 > ◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢
@@ -324,7 +308,6 @@ ${catLines}
 > 🛠️  Mode      ›  *${botMode.toUpperCase()}*
 > 📦  Version   ›  *v${botVersion}*
 > 💾  RAM       ›  ${memBar}
-> 🔒  Licence   ›  ${expiryLine}
 > ◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢
 > 🕷️ *COMMAND CATEGORIES*
 > _Choose your path  ·  1–${numCats}_
@@ -340,7 +323,7 @@ ${catLines}
         name: "🌸 FLOWER",
         description: "Cute floral blockquote style",
         render({ botName, botPrefix, botVersion, botMode, botFooter,
-                  uptime, totalCmds, catLines, expiryLine, pushName, numCats }) {
+                  uptime, totalCmds, catLines, pushName, numCats }) {
             return (
 `> 🌸 *${botName.toUpperCase()}* 🌸
 > 🌺 ━━━━━━━━━━━━━━━━━━━━━━━ 🌺
@@ -351,7 +334,6 @@ ${catLines}
 > 🌻  Prefix   »  *${botPrefix}*
 > 🌻  Mode     »  *${botMode.toUpperCase()}*
 > 🌻  Version  »  *v${botVersion}*
-> 🌻  Licence  »  ${expiryLine}
 > 🌺 ━━━━━━━━━━━━━━━━━━━━━━━ 🌺
 > 🌷 *CATEGORIES*
 > _Reply a number  ·  1–${numCats}_
@@ -367,7 +349,7 @@ ${catLines}
         name: "🔥 FIRE",
         description: "Blazing hot blockquote style",
         render({ botName, botPrefix, botVersion, botMode, botFooter,
-                  uptime, totalCmds, catLines, expiryLine, pushName, numCats }) {
+                  uptime, totalCmds, catLines, pushName, numCats }) {
             return (
 `> 🔥 *${botName.toUpperCase()}* 🔥
 > 🌋 ━━━━━━━━━━━━━━━━━━━━━━━ 🌋
@@ -378,7 +360,6 @@ ${catLines}
 > 🔥  Prefix   ⟩  *${botPrefix}*
 > 🔥  Mode     ⟩  *${botMode.toUpperCase()}*
 > 🔥  Version  ⟩  *v${botVersion}*
-> 🔥  Licence  ⟩  ${expiryLine}
 > 🌋 ━━━━━━━━━━━━━━━━━━━━━━━ 🌋
 > 🔥 *COMMAND CATEGORIES*
 > 🌶️ _Reply a number to ignite  ·  1–${numCats}_
@@ -394,7 +375,7 @@ ${catLines}
         name: "🌊 WAVE",
         description: "Calm ocean blockquote style",
         render({ botName, botPrefix, botVersion, botMode, botFooter,
-                  uptime, totalCmds, catLines, expiryLine, pushName, numCats }) {
+                  uptime, totalCmds, catLines, pushName, numCats }) {
             return (
 `> 🌊 *${botName.toUpperCase()}* 🌊
 > 〰️ ━━━━━━━━━━━━━━━━━━━━━━━ 〰️
@@ -405,7 +386,6 @@ ${catLines}
 > 🐠  Prefix    ›  *${botPrefix}*
 > 🐠  Mode      ›  *${botMode.toUpperCase()}*
 > 🐠  Version   ›  *v${botVersion}*
-> 🐠  Licence   ›  ${expiryLine}
 > 〰️ ━━━━━━━━━━━━━━━━━━━━━━━ 〰️
 > 🌊 *COMMAND CATEGORIES*
 > ↯ _Reply a number  ·  1–${numCats}_
@@ -421,7 +401,7 @@ ${catLines}
         name: "💻 MATRIX",
         description: "Hacker terminal blockquote style",
         render({ botName, botPrefix, botVersion, botMode, botFooter,
-                  uptime, totalCmds, catLines, expiryLine, sender, memBar, numCats }) {
+                  uptime, totalCmds, catLines, sender, memBar, numCats }) {
             return (
 `> 💻 *${botName.toUpperCase()}*
 > ══════════════════════════════
@@ -434,7 +414,6 @@ ${catLines}
 > 🛠️  MODE       ::  *${botMode.toUpperCase()}*
 > 📦  VERSION    ::  *v${botVersion}*
 > 💾  RAM        ::  ${memBar}
-> 🔒  LICENCE    ::  ${expiryLine}
 > ══════════════════════════════
 > 🔎 SELECT_MODULE  ::  _reply 1–${numCats}_
 > ══════════════════════════════
@@ -819,55 +798,6 @@ gmd(
     }
 );
 
-// ─── 8. SETEXPIRY ─────────────────────────────────────────────────────────────
-
-gmd(
-    {
-        pattern: "setexpiry",
-        aliases: ["expiry", "setlicence", "licence", "licensedate"],
-        react: "🔒",
-        category: "owner",
-        description: "Set the bot licence expiry date. Usage: .setexpiry YYYY-MM-DD",
-    },
-    async (from, Guru, conText) => {
-        const { reply, react, isSuperUser, args } = conText;
-
-        if (!isSuperUser) { await react("❌"); return reply("❌ Owner Only Command!"); }
-
-        const { expiryLine, parseExpiryDate } = require("../guru/expiry");
-
-        if (!args[0]) {
-            await react("ℹ️");
-            const current = await expiryLine();
-            return reply(
-`┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃  🔒  *LICENCE EXPIRY*
-┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━┃
-┃  Current: ${current}
-┃
-┃  *Usage:* .setexpiry YYYY-MM-DD
-┃  *Example:* .setexpiry 2026-12-31
-┃
-┃  Set EXPIRY_DATE in Heroku
-┃  config vars for persistence.
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`
-            );
-        }
-
-        const raw = args[0].trim();
-        const parsed = parseExpiryDate(raw);
-        if (!parsed) {
-            await react("❌");
-            return reply(`❌ Invalid date format!\n\nAccepted: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY\n\nExample: *.setexpiry 2026-12-31*`);
-        }
-
-        await setSetting("BOT_EXPIRY_DATE", raw);
-        const status = await expiryLine();
-        await react("✅");
-        return reply(`✅ *Expiry date set!*\n\n🔒 ${status}\n\n_Note: Set EXPIRY_DATE in Heroku config vars for persistence across restarts._`);
-    }
-);
-
 // ─── 9. DESIGNINFO ────────────────────────────────────────────────────────────
 
 gmd(
@@ -891,9 +821,6 @@ gmd(
             getSetting("BOT_NAME"),
         ]);
 
-        const { expiryLine } = require("../guru/expiry");
-        const expStatus = await expiryLine();
-
         const themeKey  = theme || "ultra";
         const themeName = THEMES[themeKey]?.name || themeKey;
         const themeNum  = THEME_KEYS.indexOf(themeKey) + 1;
@@ -911,8 +838,6 @@ gmd(
 ┃  Footer     : _${footer || "Not set"}_
 ┃  Caption    : _${caption || "Not set"}_
 ┃  Menu Pic   : ${picShort}
-┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━┃
-┃  🔒 ${expStatus}
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 *Commands:*
@@ -923,7 +848,6 @@ gmd(
 ◈ *.setmenupic* — change menu image only
 ◈ *.setfooter <text>* — change footer
 ◈ *.setcaption <text>* — change caption
-◈ *.setexpiry YYYY-MM-DD* — set expiry date
 ◈ *.resetdesign* — reset all to defaults`
         );
     }
