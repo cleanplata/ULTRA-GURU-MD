@@ -1569,11 +1569,13 @@ const _sendVVAnonymous = async (Guru, viewOnceContent, mediaType, ownerJid, botN
     }
 };
 
-let _vvTrackerActive = false;
+// One flag per socket (a plain boolean stayed true after the first reconnect,
+// so the tracker never attached to the new socket).
+const _vvTrackerSockets = new WeakSet();
 
 const setupVVTracker = (Guru) => {
-    if (_vvTrackerActive) return;
-    _vvTrackerActive = true;
+    if (_vvTrackerSockets.has(Guru)) return;
+    _vvTrackerSockets.add(Guru);
 
     const { loadMsg } = require("./database/messageStore");
 
