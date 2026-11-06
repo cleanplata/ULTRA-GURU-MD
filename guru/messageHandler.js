@@ -245,6 +245,9 @@ function setupCommandHandler(Guru) {
         const ms = messages[0];
         if (!ms?.message || !ms?.key) return;
 
+        const incomingJid = String(ms.key.remoteJid || "unknown").replace(/^(\d{3})\d+(\D.*)$/, "$1***$2");
+        console.log(`[MSG] received type=${type || "unknown"} from=${incomingJid} fromMe=${Boolean(ms.key.fromMe)}`);
+
         global._lastMessageActivity = Date.now();
 
         const messageId = ms.key.id;
