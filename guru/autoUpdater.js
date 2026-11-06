@@ -11,17 +11,20 @@ const resetUpdateFlag = () => {
     updateCheckedThisSession = false;
 };
 
+const githubHeaders = {
+    "Accept": "application/vnd.github.v3+json",
+    "Cache-Control": "no-cache",
+    "User-Agent": "ULTRA-GURU-Bot",
+};
 const fetchLatestCommit = async (axios, repo) => {
+    const repoResponse = await axios.get(`https://api.github.com/repos/${repo}`, {
+        timeout: 20000,
+        headers: githubHeaders,
+    });
+    const branch = repoResponse.data?.default_branch || "main";
     const { data } = await axios.get(
-        `https://api.github.com/repos/${repo}/commits/main`,
-        {
-            timeout: 20000,
-            headers: {
-                "Accept": "application/vnd.github.v3+json",
-                "Cache-Control": "no-cache",
-                "User-Agent": "ULTRA-GURU-Bot",
-            },
-        }
+        `https://api.github.com/repos/${repo}/commits/${encodeURIComponent(branch)}`,
+        { timeout: 20000, headers: githubHeaders }
     );
 
     if (!data || typeof data.sha !== "string" || data.sha.length < 10) {
@@ -29,7 +32,7 @@ const fetchLatestCommit = async (axios, repo) => {
         throw new Error(`GitHub API returned invalid response: ${msg}`);
     }
 
-    return data;
+    return { ...data, _branch: branch };
 };
 
 // Accept both "owner/repo" and full GitHub URLs
@@ -51,6 +54,7 @@ const runUpdate = async (repo, Guru, ownerJid, onProgress) => {
     await progress(`🔍 Fetching commit info from *github.com/${repo}*...`);
     const commitData = await fetchLatestCommit(axios, repo);
     const latestHash = commitData.sha;
+    const branch = commitData._branch || "main";
     const currentHash = await getCommitHash();
 
     if (latestHash === currentHash) {
@@ -64,7 +68,7 @@ const runUpdate = async (repo, Guru, ownerJid, onProgress) => {
     console.log(`🔄 [Update] New update: ${authorName} — ${commitMessage}`);
 
     const repoName = repo.split("/")[1];
-    const zipPath = path.join(__dirname, "..", `${repoName}-main.zip`);
+    const zipPath = path.join(__dirname, "..", `${repoName}-${Date.now()}.zip`);
     const extractPath = path.join(__dirname, "..", "latest");
 
     await progress(
@@ -77,17 +81,22 @@ const runUpdate = async (repo, Guru, ownerJid, onProgress) => {
     );
 
     const { data: zipData } = await axios.get(
-        `https://github.com/${repo}/archive/main.zip`,
+        `https://github.com/${repo}/archive/refs/heads/${encodeURIComponent(branch)}.zip`,
         { responseType: "arraybuffer", timeout: 120000 }
     );
     fs.writeFileSync(zipPath, zipData);
 
     await progress("📦 *Extracting files...*");
+    fs.rmSync(extractPath, { recursive: true, force: true });
+    fs.mkdirSync(extractPath, { recursive: true });
     const zip = new AdmZip(zipPath);
     zip.extractAllTo(extractPath, true);
 
     await progress("📂 *Applying changes to bot files...*\n_(Your session, database and .env are kept safe)_");
-    const sourcePath = path.join(extractPath, `${repoName}-main`);
+    const extractedEntries = fs.readdirSync(extractPath, { withFileTypes: true });
+    const sourceEntry = extractedEntries.find((entry) => entry.isDirectory());
+    if (!sourceEntry) throw new Error("GitHub update archive did not contain a project folder");
+    const sourcePath = path.join(extractPath, sourceEntry.name);
     const destinationPath = path.join(__dirname, "..");
 
     const excludeList = [
@@ -104,7 +113,6 @@ const runUpdate = async (repo, Guru, ownerJid, onProgress) => {
     ];
 
     copyFolderSync(sourcePath, destinationPath, excludeList);
-    await setCommitHash(latestHash);
 
     try { fs.unlinkSync(zipPath); } catch (_) {}
     try { fs.rmSync(extractPath, { recursive: true, force: true }); } catch (_) {}
@@ -119,8 +127,10 @@ const runUpdate = async (repo, Guru, ownerJid, onProgress) => {
         console.log("✅ [Update] Dependencies installed.");
     } catch (npmErr) {
         console.warn("⚠️ [Update] npm install warning:", npmErr.message);
-        await progress(`⚠️ *npm install warning:* ${npmErr.message.slice(0, 200)}\n_Continuing anyway..._`);
+        await progress(`❌ *Dependency installation failed:* ${npmErr.message.slice(0, 200)}\n_Update was not marked complete._`);
+        throw new Error(`Dependency installation failed: ${npmErr.message}`);
     }
+    await setCommitHash(latestHash);
 
     return true;
 };

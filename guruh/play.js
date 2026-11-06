@@ -2,6 +2,7 @@
 
 const { gmd } = require("../guru");
 const axios   = require("axios");
+const ytSearch = require("yt-search");
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -16,6 +17,54 @@ async function raceChain(fns) {
         return await Promise.any(fns.map((fn) => fn()));
     } catch (_) {
         return null; // every source failed
+    }
+}
+
+async function searchYoutube(query, apiConfig = {}) {
+    if (apiConfig.GuruTechApi && apiConfig.GuruApiKey) {
+        try {
+            const response = await axios.get(`${apiConfig.GuruTechApi}/search/yts`, {
+                params: { apikey: apiConfig.GuruApiKey, query },
+                timeout: 15000,
+            });
+            const data = response.data || {};
+            const item = data.items?.[0] || data.results?.[0] || data.videos?.[0];
+            const itemUrl = typeof item === "string"
+                ? item
+                : item?.url || item?.videoUrl || item?.link;
+            const firstUrl = itemUrl || (Array.isArray(data.videos)
+                ? data.videos.find((url) => typeof url === "string" && isYtUrl(url))
+                : null);
+            if (firstUrl && isYtUrl(firstUrl)) {
+                return {
+                    url: firstUrl,
+                    title: typeof item === "object" ? (item.title || item.name || query) : query,
+                    thumbnail: typeof item === "object" ? (item.thumbnail || item.image || "") : "",
+                    duration: typeof item === "object" ? (item.seconds || item.duration || 0) : 0,
+                };
+            }
+        } catch (error) {
+            console.error("GuruTech YouTube search failed:", error.message);
+        }
+    }
+    try {
+        const result = await Promise.race([
+            ytSearch(query),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("YouTube search timeout")), 15000)
+            ),
+        ]);
+        const video = result?.videos?.find((item) => item?.url && item?.videoId);
+        if (!video) return null;
+        return {
+            url: video.url,
+            title: video.title || query,
+            thumbnail: video.thumbnail || "",
+            duration: video.seconds || 0,
+        };
+    } catch (error) {
+        console.error("YouTube search fallback failed:", error.message);
+        return null;
     }
 }
 
@@ -40,7 +89,18 @@ const fmt = (title, lines, footer) =>
     `*${title}*\n\n${lines.join("\n")}\n\n> _${footer}_`;
 
 // ── Audio API chain (primary: Toxic-MD APIs → fallbacks) ─────────────────────
-async function resolveAudio(query, isUrl) {
+async function resolveAudio(query, isUrl, apiConfig = {}) {
+    if (!isUrl) {
+        const found = await searchYoutube(query, apiConfig);
+        if (!found) return null;
+        const resolved = await resolveAudio(found.url, true, apiConfig);
+        return resolved ? {
+            ...resolved,
+            title: resolved.title || found.title,
+            thumbnail: resolved.thumbnail || found.thumbnail,
+            sourceUrl: resolved.sourceUrl || found.url,
+        } : null;
+    }
     const enc = encodeURIComponent(query);
 
     // Toxic-MD primary APIs
@@ -110,7 +170,17 @@ async function resolveAudio(query, isUrl) {
 }
 
 // ── Video API chain ───────────────────────────────────────────────────────────
-async function resolveVideo(query, isUrl) {
+async function resolveVideo(query, isUrl, apiConfig = {}) {
+    if (!isUrl) {
+        const found = await searchYoutube(query, apiConfig);
+        if (!found) return null;
+        const resolved = await resolveVideo(found.url, true, apiConfig);
+        return resolved ? {
+            ...resolved,
+            title: resolved.title || found.title,
+            duration: resolved.duration || found.duration,
+        } : null;
+    }
     const enc = encodeURIComponent(query);
     const id  = isUrl ? extractYtId(query) : null;
 
@@ -170,7 +240,7 @@ gmd(
         description: "Download and send audio from YouTube. Usage: .play <song name or URL>",
     },
     async (from, Guru, conText) => {
-        const { q, reply, react, mek, botFooter, botName } = conText;
+        const { q, reply, react, mek, botFooter, botName, GuruTechApi, GuruApiKey } = conText;
 
         if (!q || !q.trim()) {
             await react("❌");
@@ -189,7 +259,7 @@ gmd(
         await react("⌛");
         await reply(fmt("PLAY", ["Searching and downloading... please wait."], botFooter));
 
-        const resolved = await resolveAudio(query, ytUrl);
+        const resolved = await resolveAudio(query, ytUrl, { GuruTechApi, GuruApiKey });
 
         if (!resolved) {
             await react("❌");
@@ -347,7 +417,7 @@ gmd(
         description: "Download and send video from YouTube. Usage: .video <title or URL>",
     },
     async (from, Guru, conText) => {
-        const { q, reply, react, mek, botFooter } = conText;
+        const { q, reply, react, mek, botFooter, GuruTechApi, GuruApiKey } = conText;
 
         if (!q || !q.trim()) {
             await react("❌");
@@ -367,7 +437,7 @@ gmd(
         await react("⌛");
         await reply(fmt("YTMP4", ["Processing... This may take up to 60s."], botFooter));
 
-        const resolved = await resolveVideo(query, ytUrl);
+        const resolved = await resolveVideo(query, ytUrl, { GuruTechApi, GuruApiKey });
 
         if (!resolved) {
             await react("❌");

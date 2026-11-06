@@ -10,6 +10,23 @@ const getRepo = async (guruRepo) => {
     const match = String(raw).match(/github\.com\/([^/\s]+\/[^/\s]+)/);
     return match ? match[1].replace(/\.git$/, "").replace(/\/*$/, "") : String(raw).trim();
 };
+const getLatestCommit = async (repo) => {
+    const headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "Cache-Control": "no-cache",
+        "User-Agent": "ULTRA-GURU-Bot",
+    };
+    const { data: repoData } = await axios.get(`https://api.github.com/repos/${repo}`, {
+        timeout: 20000,
+        headers,
+    });
+    const branch = repoData?.default_branch || "main";
+    const { data: commitData } = await axios.get(
+        `https://api.github.com/repos/${repo}/commits/${encodeURIComponent(branch)}`,
+        { timeout: 20000, headers }
+    );
+    return commitData;
+};
 
 gmd(
     {
@@ -37,17 +54,7 @@ gmd(
             );
 
             const currentHash = await getCommitHash();
-            const { data: commitData } = await axios.get(
-                `https://api.github.com/repos/${repo}/commits/main`,
-                {
-                    timeout: 20000,
-                    headers: {
-                        "Accept": "application/vnd.github.v3+json",
-                        "Cache-Control": "no-cache",
-                        "User-Agent": "ULTRA-GURU-Bot",
-                    },
-                }
-            );
+            const commitData = await getLatestCommit(repo);
             const latestHash = commitData.sha;
 
             if (latestHash === currentHash) {
@@ -114,17 +121,7 @@ gmd(
             const repo = await getRepo(guruRepo);
             const currentHash = await getCommitHash();
 
-            const { data: commitData } = await axios.get(
-                `https://api.github.com/repos/${repo}/commits/main`,
-                {
-                    timeout: 20000,
-                    headers: {
-                        "Accept": "application/vnd.github.v3+json",
-                        "Cache-Control": "no-cache",
-                        "User-Agent": "ULTRA-GURU-Bot",
-                    },
-                }
-            );
+            const commitData = await getLatestCommit(repo);
             const latestHash = commitData.sha;
             const hasUpdate = latestHash !== currentHash;
 
