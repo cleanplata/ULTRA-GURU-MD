@@ -237,22 +237,51 @@ function buildMsgObj(originalMessage, quotedContent) {
     };
 }
 
-// Post to status@broadcast for every individual participant in the group.
-// WhatsApp's statusJidList expects recipient JIDs, not a group JID. Passing
-// the group JID can appear to succeed while nobody in the group receives it.
+// Post a WhatsApp group status to the group's own profile/icon. This is not the
+// normal status@broadcast path: statusJidList would publish a personal Status
+// to each participant. Group-icon status uses groupStatusMessageV2 addressed to
+// the group JID, with isGroupStatus metadata.
 async function groupStatus(conn, jid, sendOpts) {
-    const metadata = await conn.groupMetadata(jid);
-    const statusJidList = (metadata?.participants || [])
-        .map((participant) => participant.pn || participant.phoneNumber || participant.id)
-        .filter((participant) => typeof participant === "string" && participant.includes("@"));
+    const senderJid = baileys.jidNormalizedUser(conn.user?.id || "");
+    const commonContext = {
+        forwardingScore: 0,
+        featureEligibilities: { canBeReshared: true, canReceiveMultiReact: true },
+        pairedMediaType: 0,
+        statusSourceType: 4,
+        isGroupStatus: true,
+    };
 
-    if (!statusJidList.length) {
-        throw new Error("No group participants were available for the status recipient list.");
+    if (sendOpts.text !== undefined) {
+        const message = {
+            extendedTextMessage: {
+                text: sendOpts.text,
+                font: sendOpts.font || 0,
+                backgroundArgb: sendOpts.backgroundArgb,
+                contextInfo: {
+                    ...commonContext,
+                    statusAttributions: [{ type: 6, groupStatus: { authorJid: senderJid } }],
+                },
+            },
+        };
+        const generated = baileys.generateWAMessageFromContent(
+            jid,
+            { groupStatusMessageV2: { message } },
+            { userJid: senderJid },
+        );
+        return conn.relayMessage(jid, generated.message, { messageId: generated.key.id });
     }
 
-    return await conn.sendMessage("status@broadcast", sendOpts, {
-        statusJidList,
+    const prepared = await baileys.prepareWAMessageMedia(sendOpts, {
+        upload: conn.waUploadToServer,
     });
+    const messageKey = Object.keys(prepared).find((key) => key.endsWith("Message"));
+    if (!messageKey) throw new Error("Could not prepare group status media.");
+
+    prepared[messageKey].contextInfo = {
+        ...commonContext,
+        statusAttributions: [{ type: 10 }],
+    };
+    return conn.sendMessage(jid, prepared);
 }
 
 function toVN(buffer) {
