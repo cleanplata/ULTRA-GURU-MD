@@ -1,4 +1,5 @@
 const { getSetting } = require("./database/settings");
+const axios = require("axios");
 
 const originalConsoleInfo = console.info;
 const originalConsoleLog = console.log;
@@ -75,6 +76,59 @@ function setupConsoleFilters() {
 
 setupConsoleFilters();
 
+let cachedThumbnailUrl = null;
+let cachedThumbnailBuffer = null;
+let pendingThumbnailUrl = null;
+let pendingThumbnailFetch = null;
+
+const getThumbnailBuffer = async (imageUrl) => {
+    if (Buffer.isBuffer(imageUrl)) return imageUrl;
+    if (typeof imageUrl !== "string" || !imageUrl.trim()) return undefined;
+
+    const url = imageUrl.trim();
+    if (url === cachedThumbnailUrl && cachedThumbnailBuffer) return cachedThumbnailBuffer;
+    if (url === pendingThumbnailUrl && pendingThumbnailFetch) return pendingThumbnailFetch;
+
+    try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.protocol !== "https:" || parsedUrl.username || parsedUrl.password) return undefined;
+    } catch (_) {
+        return undefined;
+    }
+
+    const fetchPromise = (async () => {
+        try {
+            const { data, headers } = await axios.get(url, {
+                responseType: "arraybuffer",
+                timeout: 8000,
+                maxContentLength: 5 * 1024 * 1024,
+                maxBodyLength: 5 * 1024 * 1024,
+                headers: { "User-Agent": "Mozilla/5.0" },
+            });
+            const contentType = (headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+            const buffer = Buffer.from(data);
+            if (!contentType.startsWith("image/") || !buffer.length) return undefined;
+
+            cachedThumbnailUrl = url;
+            cachedThumbnailBuffer = buffer;
+            return buffer;
+        } catch (_) {
+            return undefined;
+        }
+    })();
+
+    pendingThumbnailUrl = url;
+    pendingThumbnailFetch = fetchPromise;
+    try {
+        return await fetchPromise;
+    } finally {
+        if (pendingThumbnailFetch === fetchPromise) {
+            pendingThumbnailUrl = null;
+            pendingThumbnailFetch = null;
+        }
+    }
+};
+
 const createContext = async (userJid, options = {}) => {
     const botName = (await getSetting("BOT_NAME")) || "𝐔𝐋𝐓𝐑𝐀 𝐆𝐔𝐑𝐔";
     const botPic =
@@ -85,6 +139,7 @@ const createContext = async (userJid, options = {}) => {
     const newsletterUrl =
         (await getSetting("NEWSLETTER_URL")) ||
         "https://whatsapp.com/channel/0029VbDh88NCMY0Fartkxm1g";
+    const thumbnail = await getThumbnailBuffer(options.thumbnail || botPic);
 
     return {
         contextInfo: {
@@ -102,7 +157,7 @@ const createContext = async (userJid, options = {}) => {
             externalAdReply: {
                 title: options.title || botName,
                 body: options.body || "Powered by GuruTech",
-                thumbnailUrl: botPic,
+                ...(thumbnail ? { thumbnail } : {}),
                 mediaType: 1,
                 mediaUrl: options.mediaUrl || botPic,
                 sourceUrl: options.sourceUrl || newsletterUrl,
@@ -120,6 +175,7 @@ const createContext2 = async (userJid, options = {}) => {
         "https://res.cloudinary.com/dqxlb29uz/image/upload/v1780267810/bwm_uploads/media-1780267810008.jpg";
     const newsletterJid =
         (await getSetting("NEWSLETTER_JID")) || "120363431857319034@newsletter";
+    const thumbnail = await getThumbnailBuffer(botPic);
 
     return {
         contextInfo: {
@@ -134,7 +190,7 @@ const createContext2 = async (userJid, options = {}) => {
             externalAdReply: {
                 title: options.title || botName,
                 body: options.body || "Powered by Guru Tech",
-                thumbnailUrl: botPic,
+                ...(thumbnail ? { thumbnail } : {}),
                 mediaType: 1,
                 showAdAttribution: true,
                 renderLargerThumbnail: true,
