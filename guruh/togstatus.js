@@ -272,7 +272,7 @@ async function groupStatus(conn, jid, sendOpts) {
     }
 
     const prepared = await baileys.prepareWAMessageMedia(sendOpts, {
-        upload: conn.waUploadToServer,
+        upload: conn.waUploadToServer.bind(conn),
     });
     const messageKey = Object.keys(prepared).find((key) => key.endsWith("Message"));
     if (!messageKey) throw new Error("Could not prepare group status media.");
@@ -281,7 +281,12 @@ async function groupStatus(conn, jid, sendOpts) {
         ...commonContext,
         statusAttributions: [{ type: 10 }],
     };
-    return conn.sendMessage(jid, prepared);
+    const generated = baileys.generateWAMessageFromContent(
+        jid,
+        { groupStatusMessageV2: { message: prepared } },
+        { userJid: senderJid },
+    );
+    return conn.relayMessage(jid, generated.message, { messageId: generated.key.id });
 }
 
 function toVN(buffer) {
