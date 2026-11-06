@@ -77,15 +77,16 @@ gmd(
             }
 
             // Detect quoted message
-            const quoted =
+            const quoted = unwrapQuotedMessage(
                 mek.message?.extendedTextMessage?.contextInfo?.quotedMessage ||
                 (mek.message?.imageMessage ? mek.message : null) ||
                 (mek.message?.videoMessage ? mek.message : null) ||
-                (mek.message?.audioMessage ? mek.message : null);
+                (mek.message?.audioMessage ? mek.message : null),
+            );
 
             const hasMedia =
                 quoted &&
-                (quoted.imageMessage || quoted.videoMessage || quoted.audioMessage);
+                (quoted.imageMessage || quoted.videoMessage || quoted.audioMessage || quoted.documentMessage);
 
             // ── BUILD RAW SEND OPTIONS ───────────────────────────────────────
             // We use sendMessage('status@broadcast', opts, {statusJidList}) which
@@ -149,6 +150,38 @@ gmd(
                     waveform: Buffer.from(wfBase64, "base64"),
                 };
                 mediaType = "audio";
+
+            } else if (quoted.documentMessage) {
+                const mime = quoted.documentMessage.mimetype || "";
+                const documentType = mime.startsWith("image/")
+                    ? "image"
+                    : mime.startsWith("video/")
+                        ? "video"
+                        : mime.startsWith("audio/")
+                            ? "audio"
+                            : null;
+                if (!documentType) {
+                    return quickReply("❌ Unsupported document type. Reply to an image, video, or audio.");
+                }
+                await react("⏳");
+                const buf = await baileys.downloadMediaMessage(
+                    buildMsgObj(mek, quoted), "buffer", {},
+                    { reuploadRequest: Guru.updateMediaMessage },
+                );
+                if (documentType === "audio") {
+                    const vn = await toVN(buf);
+                    sendOpts = {
+                        audio: vn,
+                        mimetype: "audio/ogg; codecs=opus",
+                        ptt: true,
+                        waveform: Buffer.from(await generateWaveform(buf), "base64"),
+                    };
+                } else if (documentType === "video") {
+                    sendOpts = { video: buf, caption: caption || "" };
+                } else {
+                    sendOpts = { image: buf, caption: caption || "" };
+                }
+                mediaType = documentType;
 
             } else {
                 return quickReply("❌ Unsupported media type. Reply to an image, video, or audio.");
@@ -235,6 +268,21 @@ function buildMsgObj(originalMessage, quotedContent) {
         },
         message: quotedContent,
     };
+}
+
+function unwrapQuotedMessage(message) {
+    let current = message;
+    for (let i = 0; i < 5 && current; i += 1) {
+        const nested = current.viewOnceMessage?.message ||
+            current.viewOnceMessageV2?.message ||
+            current.viewOnceMessageV2Extension?.message ||
+            current.ephemeralMessage?.message ||
+            current.documentWithCaptionMessage?.message ||
+            current.editedMessage?.message;
+        if (!nested) break;
+        current = nested;
+    }
+    return current || null;
 }
 
 // Post a WhatsApp group status to the group's own profile/icon. This is not the
