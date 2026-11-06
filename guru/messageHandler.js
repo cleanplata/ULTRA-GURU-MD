@@ -198,10 +198,17 @@ function setupGuruHelpers(Guru, from) {
                 : mime.split("/")[0];
 
             const stream = await downloadContentFromMessage(quoted, messageType);
-            let buffer = Buffer.from([]);
+            const chunks = [];
+            let totalBytes = 0;
+            const maxDownloadBytes = 50 * 1024 * 1024;
             for await (const chunk of stream) {
-                buffer = Buffer.concat([buffer, chunk]);
+                totalBytes += chunk.length;
+                if (totalBytes > maxDownloadBytes) {
+                    throw new Error("Media file is larger than the 50 MB limit.");
+                }
+                chunks.push(chunk);
             }
+            const buffer = Buffer.concat(chunks, totalBytes);
 
             let fileTypeResult;
             try {

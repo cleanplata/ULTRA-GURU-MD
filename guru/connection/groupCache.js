@@ -5,12 +5,14 @@ const groupCache = new NodeCache({
     stdTTL: 5 * 60,
     useClones: false,
     checkperiod: 60,
+    maxKeys: 500,
 });
 
 const lidToJidStore = new NodeCache({
     stdTTL: 24 * 60 * 60,
     useClones: false,
     checkperiod: 300,
+    maxKeys: 10000,
 });
 
 const storeLidMapping = (lid, jid) => {
