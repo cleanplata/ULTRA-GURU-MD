@@ -5,6 +5,9 @@ const { makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
 const { cachedGroupMetadata } = require('./groupCache');
 
 const _userDevicesCache = new NodeCache({ stdTTL: 1800, useClones: false });
+// Keep retry counters so Baileys can complete its Signal-key retry flow when
+// a recipient reports that an encrypted message cannot be decrypted.
+const _msgRetryCounterCache = new NodeCache({ stdTTL: 600, useClones: false });
 
 const createSocketConfig = (version, state, logger) => {
     return {
@@ -17,6 +20,7 @@ const createSocketConfig = (version, state, logger) => {
         },
         cachedGroupMetadata,
         userDevicesCache: _userDevicesCache,
+        msgRetryCounterCache: _msgRetryCounterCache,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 30000,

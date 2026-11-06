@@ -79,11 +79,21 @@ async function loadSession() {
     console.log(`🖥️ Detected Environment: ${hostEnv.toUpperCase()}`);
 
     try {
-        // Clear old credential files (keep .db files used by SQLite auth)
+        // Clear transient credential files, but preserve the complete SQLite
+        // session. SQLite may keep the newest Signal keys in its WAL/SHM
+        // sidecars; deleting those files on restart can make the bot connect
+        // successfully while losing the keys needed to decrypt messages.
         if (fs.existsSync(sessionDir)) {
             const allFiles = fs.readdirSync(sessionDir);
             allFiles.forEach(f => {
-                if (!f.endsWith('.db')) {
+                const keepSessionFile =
+                    f === 'session.db' ||
+                    f === 'session.db-wal' ||
+                    f === 'session.db-shm' ||
+                    f === 'store.db' ||
+                    f === 'store.db-wal' ||
+                    f === 'store.db-shm';
+                if (!keepSessionFile) {
                     try { fs.unlinkSync(path.join(sessionDir, f)); } catch (e) {}
                 }
             });
