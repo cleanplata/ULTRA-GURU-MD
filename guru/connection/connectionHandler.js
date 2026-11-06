@@ -13,29 +13,42 @@ const RECONNECT_DELAY = 5000;
 const MAX_RECONNECT_ATTEMPTS = 50;
 const WATCHDOG_INTERVAL = 120000; // check every 2 min
 const WATCHDOG_TIMEOUT = 45000;
+const WATCHDOG_MAX_FAILURES = 2;  // consecutive failed checks before forcing a reconnect
+
+// Close codes that used to end the bot for good (or delete the session) on the
+// very first occurrence. WhatsApp sends some of them transiently, so retry first.
+const MAX_BAD_SESSION_RETRIES = 5;
+const MAX_REPLACED_RETRIES = 2;
+const REPLACED_RETRY_DELAY = 45000;
 
 let reconnectAttempts = 0;
 let channelReactListenerActive = false;
 let watchdogTimer = null;
 let isReconnecting = false;
 let isWatchdogReconnect = false;
+let badSessionStreak = 0;
+let replacedStreak = 0;
+let watchdogFailures = 0;
 
 const withJitter = (ms) => ms + Math.floor(Math.random() * ms * 0.3);
 
-// Keep web server alive after a fatal WhatsApp disconnect instead of killing the process.
-// The user can visit /pair to re-link and get a fresh SESSION_ID.
-const _keepAlive = (reason) => {
-    const replDomain = process.env.REPL_DEV_DOMAIN || process.env.REPLIT_DOMAINS || "your-repl-url";
+// Called only when reconnecting cannot help (logged out, number restricted, or
+// the same session is in use somewhere else). The web server stays up so the
+// owner can pair again, and /health reports the real WhatsApp state instead of
+// pretending everything is fine.
+const markDisconnected = (reason) => {
     console.log(`\n${"═".repeat(60)}`);
     console.log(`🔗 BOT DISCONNECTED — ${reason}`);
     console.log(`   The web server is still running.`);
-    console.log(`   👉 Visit https://${replDomain}/pair to get a new SESSION_ID`);
-    console.log(`   Then update SESSION_ID in Replit Secrets and restart.`);
+    console.log(`   👉 Pair again to get a NEW SESSION_ID, set it in your host's`);
+    console.log(`      SESSION_ID variable and restart the bot.`);
     console.log(`${"═".repeat(60)}\n`);
     global._botDisconnected = true;
+    global._botDisconnectReason = reason;
 };
 
 const clearWatchdog = () => {
+    watchdogFailures = 0;
     if (watchdogTimer) {
         clearInterval(watchdogTimer);
         watchdogTimer = null;
@@ -82,8 +95,16 @@ const startWatchdog = (Guru, startGuru) => {
             // (so it's just as valid a liveness check) without doing that.
             const keepaliveState = freezeLastSeen === "true" ? "unavailable" : "available";
             await Guru.sendPresenceUpdate(keepaliveState);
+            watchdogFailures = 0;
         } catch (err) {
-            return forceReconnect(Guru, startGuru, `Keepalive failed: ${err.message}`);
+            // One slow or failed check on a busy host is not proof the link is
+            // dead; only reconnect after repeated failures.
+            watchdogFailures++;
+            if (watchdogFailures >= WATCHDOG_MAX_FAILURES) {
+                watchdogFailures = 0;
+                return forceReconnect(Guru, startGuru, `Keepalive failed: ${err.message}`);
+            }
+            console.warn(`⚠️ Watchdog keepalive failed (${watchdogFailures}/${WATCHDOG_MAX_FAILURES}): ${err.message}`);
         }
     }, WATCHDOG_INTERVAL);
 };
@@ -286,11 +307,11 @@ const removeStalkTarget = (targetNum, requesterJid) => {
 
 const getStalkTargets = () => stalkTargets;
 
-let stalkListenerActive = false;
+const _stalkSockets = new WeakSet();
 
 const setupStalkListener = (Guru) => {
-    if (stalkListenerActive) return;
-    stalkListenerActive = true;
+    if (_stalkSockets.has(Guru)) return;
+    _stalkSockets.add(Guru);
     Guru.ev.on("presence.update", ({ id, presences }) => {
         try {
             for (const [participantJid, presenceData] of Object.entries(presences || {})) {
@@ -488,12 +509,12 @@ const setupAntiViewOnce = (Guru) => {
 
 // ── Auto-Save View-Once: react with ❤️ or 😂 → silently saved to reactor's own DM ──
 // Uses _peekVO (non-destructive) so setupAntiViewOnce still works independently.
-let _autoSaveVOActive = false;
+const _autoSaveVOSockets = new WeakSet();
 const _AUTOSAVE_EMOJIS = new Set(["❤️", "❤", "😍", "😂", "🤣"]);
 
 const setupAutoSaveVO = (Guru) => {
-    if (_autoSaveVOActive) return;
-    _autoSaveVOActive = true;
+    if (_autoSaveVOSockets.has(Guru)) return;
+    _autoSaveVOSockets.add(Guru);
 
     Guru.ev.on("messages.upsert", async ({ messages }) => {
         for (const msg of messages) {
@@ -559,7 +580,12 @@ const setupConnectionHandler = (
         if (connection === "open") {
             console.log("✅ Connection Instance is Online");
             reconnectAttempts = 0;
+            badSessionStreak = 0;
+            replacedStreak = 0;
             isReconnecting = false;
+            global._botConnected = true;
+            global._botDisconnected = false;
+            global._botDisconnectReason = null;
 
             startWatchdog(Guru, startGuru);
 
@@ -581,8 +607,12 @@ const setupConnectionHandler = (
             channelReactListenerActive = false;
             _antiVOListenerActive = false;
             resetRestrictionListeners();
+            global._botConnected = false;
 
-            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
+            // Only trust a status code that WhatsApp/Baileys actually supplied.
+            // new Boom(plainError) reports 500 ("bad session") for ANY ordinary
+            // error, which used to wipe a perfectly good session.
+            const reason = lastDisconnect?.error?.output?.statusCode;
             console.log(`⚠️ Connection closed. Reason code: ${reason}`);
 
             const handleReconnect = (extraDelay = 0) => {
@@ -618,25 +648,37 @@ const setupConnectionHandler = (
 
             switch (reason) {
                 case DisconnectReason.badSession:
-                    if (isWatchdogReconnect) {
-                        console.log("⚠️ Watchdog-triggered close received code 500 — reconnecting safely...");
-                        isWatchdogReconnect = false;
+                    badSessionStreak++;
+                    if (badSessionStreak > MAX_BAD_SESSION_RETRIES) {
+                        // Keep the session files: deleting them is what turned a
+                        // temporary error into a permanent "bad session id".
+                        markDisconnected(`WhatsApp rejected the session ${badSessionStreak} times in a row (code 500)`);
                         break;
                     }
-                    console.log("❌ Bad session — deleting session file.");
-                    try { await fs.remove(sessionDir); } catch (e) { console.error("Failed to remove session:", e); }
-                    _keepAlive("Bad session detected");
+                    console.log(`⚠️ Session error (500), attempt ${badSessionStreak}/${MAX_BAD_SESSION_RETRIES} — keeping session and retrying...`);
+                    handleReconnect();
                     break;
 
                 case DisconnectReason.connectionReplaced:
-                    console.log("⚠️ Connection replaced — another device is using this session.");
-                    _keepAlive("Connection replaced");
+                    replacedStreak++;
+                    if (replacedStreak > MAX_REPLACED_RETRIES) {
+                        markDisconnected("Connection replaced — this SESSION_ID is running on another server/device. Run each SESSION_ID in ONE place only.");
+                        break;
+                    }
+                    // An older copy of the bot may still be shutting down during a redeploy.
+                    console.log(`⚠️ Connection replaced (${replacedStreak}/${MAX_REPLACED_RETRIES}) — waiting before retrying...`);
+                    handleReconnect(REPLACED_RETRY_DELAY);
                     break;
 
                 case DisconnectReason.loggedOut:
                     console.log("❌ Device logged out — deleting session.");
                     try { await fs.remove(sessionDir); } catch (e) { console.error("Failed to remove session:", e); }
-                    _keepAlive("Logged out");
+                    try { await require("../sessionBackup").clearBackup(); } catch (_) {}
+                    markDisconnected("Logged out from WhatsApp (the linked device was removed)");
+                    break;
+
+                case DisconnectReason.forbidden:
+                    markDisconnected("WhatsApp refused the connection (403) — the number may be restricted");
                     break;
 
                 case DisconnectReason.restartRequired:
