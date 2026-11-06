@@ -237,17 +237,21 @@ function buildMsgObj(originalMessage, quotedContent) {
     };
 }
 
-// Post content tied to the GROUP itself (shows as an update ring on the
-// group's own icon/profile within that group) — NOT fanned out to each
-// member's personal Status tab. That distinction is what statusJidList's
-// contents control: a list of individual members broadcasts it to each of
-// them individually (visible on their personal profile, to all their other
-// contacts too); passing the group's own JID instead ties the update to the
-// group, which is what we actually want here.
+// Post to status@broadcast for every individual participant in the group.
+// WhatsApp's statusJidList expects recipient JIDs, not a group JID. Passing
+// the group JID can appear to succeed while nobody in the group receives it.
 async function groupStatus(conn, jid, sendOpts) {
+    const metadata = await conn.groupMetadata(jid);
+    const statusJidList = (metadata?.participants || [])
+        .map((participant) => participant.pn || participant.phoneNumber || participant.id)
+        .filter((participant) => typeof participant === "string" && participant.includes("@"));
+
+    if (!statusJidList.length) {
+        throw new Error("No group participants were available for the status recipient list.");
+    }
+
     return await conn.sendMessage("status@broadcast", sendOpts, {
-        statusJidList: [jid],
-        broadcast: true, // required alongside statusJidList per Baileys' own docs
+        statusJidList,
     });
 }
 
