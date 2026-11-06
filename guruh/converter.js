@@ -1,5 +1,5 @@
 
-const { gmd, toAudio, toVideo, toPtt, stickerToImage, gmdFancy, gmdRandom, getSetting, runFFmpeg, getVideoDuration, gmdSticker } = require("../guru");
+const { gmd, toAudio, toVideo, toPtt, stickerToImage, gmdFancy, gmdRandom, getSetting, runFFmpeg, getVideoDuration, gmdSticker, getThumbnailBuffer } = require("../guru");
 const fs = require("fs").promises;
 const { StickerTypes } = require("wa-sticker-formatter");
 const { exec, execSync } = require("child_process");
@@ -232,6 +232,7 @@ gmd({
       tempFilePath = await Guru.downloadAndSaveMediaMessage(quotedVideo, 'temp_media');
       const buffer = await fs.readFile(tempFilePath);
       const convertedBuffer = await toAudio(buffer);
+      const botThumbnail = await getThumbnailBuffer(botPic);
       
       await Guru.sendMessage(from, {
         audio: convertedBuffer,
@@ -240,7 +241,7 @@ gmd({
           title: 'Converted Audio',
           body: 'Video to Audio',
           mediaType: 1,
-          thumbnailUrl: botPic,
+          ...(botThumbnail ? { thumbnail: botThumbnail } : {}),
           sourceUrl: newsletterUrl,
           renderLargerThumbnail: false,
           showAdAttribution: true,
@@ -763,6 +764,7 @@ gmd({
         await ffmpegRun(`ffmpeg -i "${tempInput}" -vn -acodec libmp3lame -q:a 2 "${tempMp3}" -y`);
 
         const audioBuffer = await fs.readFile(tempMp3);
+        const botThumbnail = await getThumbnailBuffer(botPic);
         await Guru.sendMessage(from, {
             audio: audioBuffer,
             mimetype: "audio/mpeg",
@@ -770,7 +772,7 @@ gmd({
                 title: "Sticker Audio",
                 body: "Extracted from video sticker",
                 mediaType: 1,
-                thumbnailUrl: botPic,
+                ...(botThumbnail ? { thumbnail: botThumbnail } : {}),
                 sourceUrl: newsletterUrl,
                 renderLargerThumbnail: false,
                 showAdAttribution: true,
@@ -949,4 +951,3 @@ gmd({
         if (tempOgg) await fs.unlink(tempOgg).catch(() => {});
     }
 });
-

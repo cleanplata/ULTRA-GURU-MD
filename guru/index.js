@@ -27,7 +27,7 @@ const {
 } = require("./database/groupSettings");
 
 // ─── Helpers & Context ───────────────────────────────────────────────────────
-const { createContext, createContext2, createFakeContact } = require("./gmdHelpers");
+const { createContext, createContext2, createFakeContact, getThumbnailBuffer } = require("./gmdHelpers");
 
 // ─── Media & Upload Utilities ────────────────────────────────────────────────
 const {
@@ -102,7 +102,7 @@ module.exports = {
     setGroupSetting, getAllGroupSettings, resetGroupSetting, GROUP_SETTING_DEFAULTS,
 
     // Context / helpers
-    createContext, createContext2, createFakeContact,
+    createContext, createContext2, createFakeContact, getThumbnailBuffer,
     emojis, logger,
 
     // Media utilities

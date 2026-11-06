@@ -260,4 +260,5 @@ module.exports = {
     createContext,
     createContext2,
     createFakeContact,
+    getThumbnailBuffer,
 };
