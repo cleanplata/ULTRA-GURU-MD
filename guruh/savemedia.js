@@ -1,4 +1,4 @@
-const { gmd, getAllSettings, getMediaBuffer } = require("../guru");
+const { gmd, getMediaBuffer, standardizeJid } = require("../guru");
 
 gmd(
     {
@@ -6,17 +6,19 @@ gmd(
         aliases: ["inbox", "grab", "keep"],
         react: "📥",
         category: "tools",
-        description: "Forward quoted media to owner inbox",
-        usage: "Reply to any media with .save",
+        description: "Send quoted media to your own DM",
+        usage: "Reply to any media with .save; the media is sent to your DM",
     },
     async (from, Guru, conText) => {
-        const { mek, reply, react, ownerNumber } = conText;
+        const { mek, reply, react, sender } = conText;
 
-        if (!ownerNumber) {
-            return reply("❌ Owner number not set in bot settings.");
+        const rawRecipient = sender || (from?.endsWith("@g.us") ? "" : from);
+        const requesterJid = standardizeJid(rawRecipient);
+
+        if (!requesterJid || requesterJid.endsWith("@g.us")) {
+            await react("❌");
+            return reply("❌ I couldn't identify your private WhatsApp chat. Try using *.save* from your DM.");
         }
-
-        const ownerJid = ownerNumber.replace(/\D/g, "") + "@s.whatsapp.net";
 
         const quotedRaw =
             mek.message?.extendedTextMessage?.contextInfo ||
@@ -55,21 +57,21 @@ gmd(
         try {
             if (msg.imageMessage) {
                 const buffer = await getMediaBuffer(msg.imageMessage, "image");
-                await Guru.sendMessage(ownerJid, {
+                await Guru.sendMessage(requesterJid, {
                     image: buffer,
-                    caption: msg.imageMessage.caption || "📥 *Saved to inbox*",
+                    caption: msg.imageMessage.caption || "📥 *Saved to your inbox*",
                 });
 
             } else if (msg.videoMessage) {
                 const buffer = await getMediaBuffer(msg.videoMessage, "video");
-                await Guru.sendMessage(ownerJid, {
+                await Guru.sendMessage(requesterJid, {
                     video: buffer,
-                    caption: msg.videoMessage.caption || "📥 *Saved to inbox*",
+                    caption: msg.videoMessage.caption || "📥 *Saved to your inbox*",
                 });
 
             } else if (msg.audioMessage) {
                 const buffer = await getMediaBuffer(msg.audioMessage, "audio");
-                await Guru.sendMessage(ownerJid, {
+                await Guru.sendMessage(requesterJid, {
                     audio: buffer,
                     mimetype: "audio/mpeg",
                     ptt: msg.audioMessage.ptt || false,
@@ -77,20 +79,20 @@ gmd(
 
             } else if (msg.documentMessage) {
                 const buffer = await getMediaBuffer(msg.documentMessage, "document");
-                await Guru.sendMessage(ownerJid, {
+                await Guru.sendMessage(requesterJid, {
                     document: buffer,
                     fileName: msg.documentMessage.fileName || "document",
                     mimetype: msg.documentMessage.mimetype || "application/octet-stream",
-                    caption: msg.documentMessage.caption || "📥 *Saved to inbox*",
+                    caption: msg.documentMessage.caption || "📥 *Saved to your inbox*",
                 });
 
             } else if (msg.stickerMessage) {
                 const buffer = await getMediaBuffer(msg.stickerMessage, "sticker");
-                await Guru.sendMessage(ownerJid, { sticker: buffer });
+                await Guru.sendMessage(requesterJid, { sticker: buffer });
             }
 
             await react("✅");
-            await reply("✅ Media forwarded to owner inbox!");
+            await reply("✅ Media sent to your DM!");
 
         } catch (err) {
             console.error("[SaveMedia] Error:", err.message);
