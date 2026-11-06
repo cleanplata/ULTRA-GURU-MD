@@ -104,13 +104,13 @@ async function loadSession() {
                     console.log("⏳ Waiting for SESSION_ID to be set in Replit Secrets...");
                     return null; // signal to index.js to skip startGuru until session is provided
                 }
-                process.exit(1);
+                process.exit(64); // 64 = fatal config problem, boot.js will not restart
             } else if (hostEnv === 'katabump') {
                 // Known-unreliable interactive console — skip the prompt
                 // entirely and show clear guidance instead of hanging until
                 // a timeout crash.
                 printKatabumpGuidance();
-                process.exit(0);
+                process.exit(64);
             } else {
                 // Other panels (Pterodactyl, VPS, local) — prompt to paste
                 const readline = require('readline');
@@ -130,7 +130,7 @@ async function loadSession() {
                 });
                 if (!sessionId) {
                     console.error('❌ No SESSION_ID entered. Exiting.');
-                    process.exit(1);
+                    process.exit(64);
                 }
                 // ── Persist to .env so restarts don't prompt again ──────────
                 try {
@@ -254,6 +254,55 @@ function resetPairingMode() {
     pendingPairingNumber = null;
 }
 
+// ============ SESSION HELPERS ============
+const SID_HASH_ROW = '__meta-sid-hash';
+let _sessionDb = null;
+
+function hashSessionId(id) {
+    if (!id || typeof id !== 'string' || !id.trim()) return null;
+    return require('crypto').createHash('sha256').update(id.trim()).digest('hex');
+}
+
+// All auth rows (creds + signal keys), without the internal meta row.
+function exportSessionRows() {
+    if (!_sessionDb) return null;
+    return _sessionDb.prepare('SELECT id, value FROM session WHERE id != ?').all(SID_HASH_ROW);
+}
+
+// Write rows into a (possibly missing) session.db BEFORE the bot opens it.
+function importSessionRows(dbPath, rows, sidHash) {
+    const Database = require('better-sqlite3');
+    const dir = path.dirname(dbPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const db = new Database(dbPath);
+    try {
+        db.pragma('journal_mode = WAL');
+        db.exec('CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, value TEXT)');
+        const ins = db.prepare('INSERT OR REPLACE INTO session (id, value) VALUES (?, ?)');
+        db.transaction(() => {
+            for (const r of rows) ins.run(r.id, r.value);
+            if (sidHash) ins.run(SID_HASH_ROW, sidHash);
+        })();
+    } finally {
+        db.close();
+    }
+}
+
+// True if session.db already holds creds.
+function sessionDbHasCreds(dbPath) {
+    if (!fs.existsSync(dbPath)) return false;
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath, { readonly: true });
+    try {
+        const row = db.prepare("SELECT 1 AS ok FROM session WHERE id = 'creds'").get();
+        return !!row;
+    } catch (_) {
+        return false;
+    } finally {
+        db.close();
+    }
+}
+
 async function useSQLiteAuthState(databasePath) {
     const Database = require('better-sqlite3');
     const { proto, initAuthCreds, BufferJSON } = require('@whiskeysockets/baileys');
@@ -283,6 +332,7 @@ async function useSQLiteAuthState(databasePath) {
             value TEXT
         )
     `);
+    _sessionDb = db;
 
     const readData = (id) => {
         const row = db.prepare('SELECT value FROM session WHERE id = ?').get(id);
@@ -300,10 +350,38 @@ async function useSQLiteAuthState(databasePath) {
         db.prepare('DELETE FROM session WHERE id = ?').run(id);
     };
 
+    // Which SESSION_ID built the creds stored in this database? Without this,
+    // pasting a NEW SESSION_ID had no effect whenever an old session.db still
+    // existed, because the old creds row always won.
+    const currentSidHash = hashSessionId(process.env.SESSION_ID);
+    const readMeta = () => {
+        const row = db.prepare('SELECT value FROM session WHERE id = ?').get(SID_HASH_ROW);
+        return row ? row.value : null;
+    };
+    const writeMeta = (hash) => {
+        if (!hash) return;
+        db.prepare('INSERT OR REPLACE INTO session (id, value) VALUES (?, ?)').run(SID_HASH_ROW, hash);
+    };
+
     if (initialCreds) {
         const existingCreds = readData('creds');
+        const storedHash = readMeta();
+
         if (!existingCreds) {
+            // Fresh database: start from the SESSION_ID snapshot.
             writeData('creds', initialCreds);
+            writeMeta(currentSidHash);
+            console.log('🔑 Session initialised from SESSION_ID');
+        } else if (!storedHash) {
+            // Database from before this fix. Its creds are newer than the
+            // snapshot, so keep them and just remember which SESSION_ID this is.
+            writeMeta(currentSidHash);
+        } else if (currentSidHash && storedHash !== currentSidHash) {
+            // The SESSION_ID was replaced: drop every old key and use the new one.
+            db.exec('DELETE FROM session');
+            writeData('creds', initialCreds);
+            writeMeta(currentSidHash);
+            console.log('🔑 New SESSION_ID detected — old session replaced');
         }
         try { fs.unlinkSync(credsPath); } catch (e) {}
     }
@@ -1132,5 +1210,6 @@ module.exports = {
     loadSession, useSQLiteAuthState, verifyJidState, runFFmpeg, getVideoDuration, 
     gmdSticker, copyFolderSync, gitRepoRegex, MAX_MEDIA_SIZE, getFileSize, 
     getMimeCategory, getMimeFromUrl, MIME_EXTENSIONS, getExtensionFromMime, 
-    isTextContent, detectHostEnvironment, getPairingInfo, resetPairingMode
+    isTextContent, detectHostEnvironment, getPairingInfo, resetPairingMode,
+    hashSessionId, exportSessionRows, importSessionRows, sessionDbHasCreds
 };
