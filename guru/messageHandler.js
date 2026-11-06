@@ -417,6 +417,9 @@ function setupCommandHandler(Guru) {
             if (settings.MODE?.toLowerCase() === "private" && !isSuperUser)
                 return;
 
+            const commandStartedAt = Date.now();
+            const safeFrom = String(from || "unknown").replace(/^(\d{3})\d+(\D.*)$/, "$1***$2");
+            console.log(`[CMD] start command=${command} from=${safeFrom} group=${Boolean(isGroup)}`);
             try {
                 const helpers = createHelpers(
                     Guru,
@@ -474,8 +477,10 @@ function setupCommandHandler(Guru) {
 
                 await gmd.function(from, Guru, conText);
                 recordCommandUsage(command).catch(() => {});
+                console.log(`[CMD] done command=${command} elapsedMs=${Date.now() - commandStartedAt}`);
             } catch (error) {
                 console.error(`Command error [${command}]:`, error);
+                console.error(`[CMD] failed command=${command} elapsedMs=${Date.now() - commandStartedAt} error=${error.message}`);
                 try {
                     await Guru.sendMessage(
                         from,
