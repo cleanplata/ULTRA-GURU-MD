@@ -297,6 +297,11 @@ async function groupStatus(conn, jid, sendOpts) {
         pairedMediaType: 0,
         statusSourceType: 4,
         isGroupStatus: true,
+        statusAudienceMetadata: {
+            audienceType: 1,
+            listEmoji: "📌",
+            listName: "Group status",
+        },
     };
 
     if (sendOpts.text !== undefined) {
@@ -329,12 +334,10 @@ async function groupStatus(conn, jid, sendOpts) {
         ...commonContext,
         statusAttributions: [{ type: 10 }],
     };
-    const generated = baileys.generateWAMessageFromContent(
-        jid,
-        { groupStatusMessageV2: { message: prepared } },
-        { userJid: senderJid },
-    );
-    return conn.relayMessage(jid, generated.message, { messageId: generated.key.id });
+    // WhatsApp accepts media group statuses as prepared media addressed to the
+    // group. Wrapping media in groupStatusMessageV2 makes relayMessage succeed
+    // while WhatsApp silently drops the group-icon status.
+    return conn.sendMessage(jid, prepared);
 }
 
 function toVN(buffer) {
