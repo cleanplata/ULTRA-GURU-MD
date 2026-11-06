@@ -407,23 +407,6 @@ function setupCommandHandler(Guru) {
             const gmd = findCommand(command);
             if (!gmd) return;
 
-            if (global._licenceExpired) {
-                try {
-                    const helpers = createHelpers(
-                        Guru,
-                        ms,
-                        from,
-                        settings.BOT_NAME,
-                        sender,
-                        pushName,
-                    );
-                    await helpers.reply(
-                        "⛔ *Bot licence has expired.*\n\n_Contact the owner to renew._",
-                    );
-                } catch {}
-                return;
-            }
-
             if (settings.MODE?.toLowerCase() === "private" && !isSuperUser)
                 return;
 
