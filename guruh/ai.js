@@ -1,4 +1,3 @@
-
 const { gmd, toPtt } = require("../guru");
 const axios = require("axios");
 const googleTTS = require("google-tts-api");
