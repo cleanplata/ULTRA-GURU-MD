@@ -58,8 +58,16 @@ const {
 const PORT            = process.env.PORT || 5000;
 const SESSION_DIR     = path.join(__dirname, "guru", "session");
 const PLUGINS_DIR     = path.join(__dirname, "guruh");
-const MEMORY_LIMIT    = 400 * 1024 * 1024; // 400 MB
+const MEMORY_LIMIT    = 400 * 1024 * 1024; // 400 MB (used only when the host limit is unknown)
 const AUTO_RESTART_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// boot.js sets these. SUPERVISED means a parent process will start the bot again
+// after it exits, so a deliberate restart is safe. Run directly with
+// `node index.js` and no restart ever happens, because nothing would bring it back.
+const SUPERVISED   = process.env.BOOT_SUPERVISED === "1";
+const MEM_LIMIT_MB = Number(process.env.BOT_MEM_LIMIT_MB) || 0;
+
+const sessionBackup = require("./guru/sessionBackup");
 
 logger.level = "silent";
 
@@ -79,7 +87,14 @@ function startWebServer() {
     app.use(express.static("guru"));
     app.get("/",       (_req, res) => res.sendFile(path.join(__dirname, "guru", "guru.html")));
     app.get("/pair",   (_req, res) => res.sendFile(path.join(__dirname, "guru", "pair.html")));
-    app.get("/health", (_req, res) => res.status(200).json({ status: "alive", uptime: process.uptime() }));
+    app.get("/health", (_req, res) => res.status(200).json({
+        status: "alive",
+        uptime: process.uptime(),
+        whatsapp: global._botDisconnected
+            ? "disconnected"
+            : (global._botConnected ? "connected" : "connecting"),
+        reason: global._botDisconnectReason || null,
+    }));
 
     // ── Pairing API ───────────────────────────────────────────────────────────
     const pairing = require("./guru/pairing");
@@ -124,52 +139,61 @@ function startWebServer() {
 //  SYSTEM TASKS
 // ════════════════════════════════════════════════════════════════════════════
 
+let _shuttingDown = false;
+
+// Save the session, close cleanly and exit. boot.js starts a fresh process.
+async function shutdownBot(reason, exitCode = 0) {
+    if (_shuttingDown) return;
+    _shuttingDown = true;
+    console.log(`🛑 [SHUTDOWN] ${reason}`);
+    try { store?.destroy(); } catch (_) {}
+    try {
+        await Promise.race([
+            sessionBackup.backupNow(true),
+            new Promise((r) => setTimeout(r, 8_000)),
+        ]);
+    } catch (_) {}
+    process.exit(exitCode);
+}
+
+function gracefulRestart(reason) {
+    if (!SUPERVISED) {
+        console.log(`ℹ️ [RESTART] "${reason}" skipped: not started through boot.js (npm start), so nothing would bring the bot back.`);
+        return;
+    }
+    shutdownBot(`Restarting: ${reason}`);
+}
+
 function startSystemTasks() {
-    // Memory watchdog — GC when heap exceeds limit
+    // Memory watchdog. A host that runs out of memory kills the process
+    // silently, which looks like the bot "going off" for no reason. Watch the
+    // real process size (RSS, not just the JS heap) and restart cleanly first.
     setInterval(() => {
-        if (process.memoryUsage().heapUsed > MEMORY_LIMIT && global.gc) global.gc();
-    }, 60_000);
+        const mu = process.memoryUsage();
+        if (MEM_LIMIT_MB > 0) {
+            const rssMB = mu.rss / 1024 / 1024;
+            if (rssMB > MEM_LIMIT_MB * 0.80 && global.gc) global.gc();
+            if (rssMB > MEM_LIMIT_MB * 0.92) {
+                console.warn(`⚠️ [MEMORY] ${Math.round(rssMB)}MB used of ${MEM_LIMIT_MB}MB — restarting before the host kills the bot.`);
+                gracefulRestart("memory almost full");
+            }
+        } else if (mu.heapUsed > MEMORY_LIMIT && global.gc) {
+            global.gc();
+        }
+    }, 60_000).unref();
 
     // Health ping — keeps the server warm
     setInterval(() => {
         http.get(`http://localhost:${PORT}/health`, () => {}).on("error", () => {});
-    }, 240_000);
+    }, 240_000).unref();
 
-    // Scheduled 24-hour auto-restart
-    setTimeout(() => {
-        console.log("🔄 [AUTO-RESTART] 24-hour restart triggered.");
-        process.exit(0);
-    }, AUTO_RESTART_MS);
-
-    console.log(`✅ Auto-restart scheduled in 24 hours (${new Date(Date.now() + AUTO_RESTART_MS).toLocaleTimeString()})`);
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  EXPIRY WATCHDOG
-// ════════════════════════════════════════════════════════════════════════════
-
-function startExpiryWatchdog() {
-    try {
-        const { startExpiryWatchdog: watch } = require("./guru/expiry");
-
-        const notifyOwner = async (text) => {
-            const ownerNum = (process.env.OWNER_NUMBER || "").replace(/[^0-9]/g, "");
-            const ownerJid = `${ownerNum}@s.whatsapp.net`;
-            if (global._botSocket && ownerJid.length > 10) {
-                await global._botSocket.sendMessage(ownerJid, { text }).catch(() => {});
-            }
-        };
-
-        watch(
-            async (msg) => {
-                global._licenceExpired = true;
-                console.warn("[EXPIRY] ⛔ Licence expired — commands locked.");
-                await notifyOwner(`⛔ *ULTRA GURU MD — LICENCE EXPIRED*\n\n${msg}\n\n_Commands are locked. Renew your licence to continue._`);
-            },
-            async (warnMsg) => notifyOwner(warnMsg),
-        );
-    } catch (e) {
-        console.warn("[EXPIRY] Watchdog not started:", e.message);
+    // Scheduled 24-hour restart (only when something will start the bot again)
+    if (SUPERVISED) {
+        setTimeout(() => {
+            console.log("🔄 [AUTO-RESTART] 24-hour restart triggered.");
+            gracefulRestart("24-hour scheduled restart");
+        }, AUTO_RESTART_MS).unref();
+        console.log(`✅ Auto-restart scheduled in 24 hours (${new Date(Date.now() + AUTO_RESTART_MS).toLocaleTimeString()})`);
     }
 }
 
@@ -225,8 +249,21 @@ async function fetchWaVersionWithTimeout() {
     return version;
 }
 
+let _starting = false;
+
 async function startGuru() {
+    // Never build two sockets at once (watchdog + close event can both ask for
+    // a restart). Two sockets on one session knock each other offline.
+    if (_starting) return;
+    _starting = true;
     try {
+        // Retire the previous socket so its handlers cannot fire again
+        if (GuruSocket) {
+            try { GuruSocket.ev.removeAllListeners(); } catch (_) {}
+            try { GuruSocket.end(undefined); } catch (_) {}
+            GuruSocket = null;
+        }
+
         console.log("🕗 Fetching WhatsApp Web version...");
         const version = await fetchWaVersionWithTimeout();
         console.log(`✅ Using WA Web version: ${version.join(".")}`);
@@ -327,13 +364,11 @@ async function startGuru() {
             onOpen: (socket) => onBotConnected(socket),
         });
 
-        // Cleanup on exit
-        process.on("SIGINT",  () => { store?.destroy(); process.exit(0); });
-        process.on("SIGTERM", () => { store?.destroy(); process.exit(0); });
-
     } catch (err) {
         console.error("❌ Socket init error:", err.message);
         setTimeout(startGuru, 5_000);
+    } finally {
+        _starting = false;
     }
 }
 
@@ -372,16 +407,12 @@ async function sendStartupMessage(socket, s) {
 
         if (s.STARTING_MESSAGE !== "true") return;
 
-        const { expiryLine } = require("./guru/expiry");
-        const expLine        = await expiryLine().catch(() => "✅ Active");
-
         const msg = [
             `*✅ ${botName} — ONLINE*`,
             ``,
             `📊 *Plugins*  : ${totalCommands}`,
             `⚡ *Prefix*   : ${s.PREFIX || d.PREFIX}`,
             `⚙️ *Mode*     : ${modeLabel}`,
-            `🔒 *Licence*  : ${expLine}`,
             `📲 *Telegram* : t.me/GURU_TECHLAB`,
             ``,
             `> ✨ _${s.CAPTION || d.CAPTION}_`,
@@ -408,7 +439,6 @@ async function sendStartupMessage(socket, s) {
 (async () => {
     startWebServer();
     startSystemTasks();
-    startExpiryWatchdog();
     startCleanup();
 
     try {
@@ -425,8 +455,17 @@ async function sendStartupMessage(socket, s) {
 
         console.log("… initDatabase starting");
         await initDatabase();
-        console.log("… initDatabase done — starting bot");
+        console.log("… initDatabase done");
 
+        // Fresh disk (Heroku etc.)? Bring back the session saved in PostgreSQL.
+        await sessionBackup.restoreIfNeeded();
+        sessionBackup.start();
+
+        // Save the session when the host stops us (Heroku sends SIGTERM on every restart)
+        process.on("SIGINT",  () => shutdownBot("SIGINT"));
+        process.on("SIGTERM", () => shutdownBot("SIGTERM"));
+
+        console.log("… starting bot");
         startGuru();
     } catch (err) {
         console.error("❌ [BOOTSTRAP FAILED]", err?.stack || err);
