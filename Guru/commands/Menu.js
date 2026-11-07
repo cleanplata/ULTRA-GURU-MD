@@ -101,11 +101,11 @@ function renderCategoryCommands({ category, index, prefix, botName, ownerName })
     ].join('\n');
 }
 
-function categoryMenuKey(chat, sender) {
-    return `${chat}:${sender}`;
+function categoryMenuKey(chat) {
+    return String(chat || '');
 }
 
-function rememberCategoryMenu(chat, sender, categories, prefix, botName, ownerName, messageId) {
+function rememberCategoryMenu(chat, categories, prefix, botName, ownerName, messageId) {
     const now = Date.now();
     for (const [key, value] of categoryMenuSessions) {
         if (value.expiresAt <= now) categoryMenuSessions.delete(key);
@@ -113,14 +113,14 @@ function rememberCategoryMenu(chat, sender, categories, prefix, botName, ownerNa
     if (categoryMenuSessions.size >= 500) {
         categoryMenuSessions.delete(categoryMenuSessions.keys().next().value);
     }
-    categoryMenuSessions.set(categoryMenuKey(chat, sender), {
+    categoryMenuSessions.set(categoryMenuKey(chat), {
         categories, prefix, botName, ownerName, messageId,
         expiresAt: now + CATEGORY_MENU_TTL_MS
     });
 }
 
 export async function handleMenuCategoryReply({ sock, from, sender, msg, body }) {
-    const key = categoryMenuKey(from, sender);
+    const key = categoryMenuKey(from);
     const session = categoryMenuSessions.get(key);
     if (!session) return false;
     if (session.expiresAt <= Date.now()) {
@@ -154,7 +154,7 @@ export const commands = [
         description: 'Show all available bot commands.',
         category: 'General',
 
-        execute: async ({ sock, from, msg, commands, text, sender, auteurMessage, nomAuteurMessage }) => {
+        execute: async ({ sock, from, msg, commands, text, auteurMessage, nomAuteurMessage }) => {
             try {
                 const botName = CONFIG.BOT_NAME || 'ULTRA GURU';
                 const botVersion = CONFIG.BOT_VERSION || '3.0.0';
@@ -218,8 +218,7 @@ export const commands = [
                 ].join('\n');
 
                 const sent = await sock.sendMessage(from, { text: menuText }, { quoted: msg });
-                const menuSender = sender || msg.key?.participant || msg.key?.remoteJid || from;
-                rememberCategoryMenu(from, menuSender, categories, prefix, botName, ownerName, sent?.key?.id);
+                rememberCategoryMenu(from, categories, prefix, botName, ownerName, sent?.key?.id);
                 return sent;
             } catch (error) {
                 console.error('Menu error:', error);

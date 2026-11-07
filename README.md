@@ -8,11 +8,19 @@ This is the ULTRA GURU bot repository: [`cleanplata/ULTRA-GURU-MD`](https://gith
 - `Guru/` contains command modules and shared feature/translation code.
 - The repository root keeps the Heroku/npm manifests, environment sample, and deployment documentation.
 
-## Reply style and menu
+## Replies, connection status, and menu
 
 Text and media replies use the quoted contact-card style from the supplied mini-bot, branded as ULTRA GURU with the configured owner label. It does not claim Meta/WhatsApp verification or include another project's identity or a hard-coded phone number. Reactions, deletions, and standalone contact payloads are not changed by the reply wrapper.
 
-The `.menu` command displays a numbered category index. Reply to that menu with a category number (for example, `1`) within 10 minutes to see its commands. You can also use `.menu <number>` or `.menu <category>` directly.
+After each successful WhatsApp connection (including after a restart), the bot sends a connected-status table to `OWNER_NUMBER` when configured. If `OWNER_NUMBER` is unset, it sends the table to the linked account's own chat.
+
+The `.menu` command displays a numbered category index. Reply to that menu with a category number (for example, `1`) within 10 minutes to see its commands. Category replies work in the menu's chat, including the linked account's self-chat and group chats. You can also use `.menu <number>` or `.menu <category>` directly.
+
+## Media commands
+
+- `.play <song name or YouTube link>` searches for the song, sends its thumbnail/details first, then sends a standard MP3 audio message (`ptt: false`) intended for native WhatsApp playback. It tries the configured downloader, then the mini-bot ZIP’s `ytDl3` API, then optional local yt-dlp; API calls are capped at 12 seconds and local extraction at 45 seconds. Final MP3s are limited to 15 MB. The two external APIs can be unavailable, and local extraction may be blocked by YouTube account verification. The optional yt-dlp wrapper needs Python 3.11+ when installed; see its [install requirements](https://github.com/microlinkhq/youtube-dl-exec/blob/main/scripts/preinstall.js).
+- `.compress` on a video caption, or as a reply to a video, re-encodes it as WhatsApp-compatible H.264/AAC MP4. Source videos over 150 MB or results over 64 MB are rejected.
+- `.tomp3` (also `.toaudio`) converts a video to audio; `.trim`, `.sticker`, and `.toimg` provide additional media conversion tools.
 
 ## WhatsApp session and LID
 

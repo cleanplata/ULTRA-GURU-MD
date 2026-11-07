@@ -428,6 +428,7 @@ async function start() {
       markOnlineOnConnect: false
     })
     installBrandedResponseContext(sock)
+    let connectionMessageSent = false
     sock.ev.on('creds.update', saveCreds)
     sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
       if (connection === 'close') {
@@ -445,6 +446,8 @@ async function start() {
           process.exit(1)
         }
       } else if (connection === 'open') {
+        if (connectionMessageSent) return
+        connectionMessageSent = true
         console.log('✅ Connected to WhatsApp')
         if (sock.user?.id) {
           const cleanUserJid = getCleanJid(sock.user.id)
@@ -466,34 +469,55 @@ async function start() {
             commands: commands.size
           })
         }
-        const date = moment().tz(CONFIG.TZ).format('DD/MM/YYYY')
-        const time = moment().tz(CONFIG.TZ).format('HH:mm:ss')
+
+        const connectedAt = moment().tz(CONFIG.TZ)
         const totalCmds = commands.size
-        const prefixInfo = CONFIG.PREFIXES.length > 0 ? `Prefixes: [${CONFIG.PREFIXES.join(', ')}]` : 'Prefixes: [No Prefix]'
-        const connInfo = `*${CONFIG.BOT_NAME} IS CONNECTED*\n\n*🚀 Version ${CONFIG.BOT_VERSION}*\n*📌 Commands:* ${totalCmds}\n*⚙️ ${prefixInfo}*\n*👑 Mode:* ${CONFIG.MODE}\n*📞 Anticall:* ${CONFIG.ANTICALL}\n*🗑️ Antidelete:* ${CONFIG.ANTIDELETE}\n*✏️ Antiedit:* ${CONFIG.ANTIEDIT}\n*📖 Auto Read:* ${CONFIG.AUTO_READ}\n*👁️ Auto View:* ${CONFIG.AUTO_VIEW}\n*❤️ Auto Like:* ${CONFIG.AUTO_LIKE}\n*💬 DM Presence:* ${CONFIG.DM_PRESENCE || 'none'}\n*👥 Group Presence:* ${CONFIG.GRP_PRESENCE || 'none'}\n*📅 Date:* ${date}\n*⏰ Time:* ${time}`
-        if (CONFIG.OWNER_NUMBER) {
+        const prefixInfo = CONFIG.PREFIXES.length > 0 ? CONFIG.PREFIXES.join(', ') : '(none)'
+        const state = value => value ? 'ON' : 'OFF'
+        const ownerName = CONFIG.OWNER_NAME || 'GuruTech'
+        const connInfo = [
+          `> ╭─⌈ 🔥 *${CONFIG.BOT_NAME}* · _v${CONFIG.BOT_VERSION}_ ⌋`,
+          '> │ ✅ *STATUS* › *CONNECTED*',
+          `> │ 👤 *Owner* › *${ownerName}*`,
+          `> │ 📋 *Commands* › *${totalCmds}*`,
+          `> │ 🔑 *Prefix* › *${prefixInfo}*`,
+          `> │ 🛠️ *Mode* › *${String(CONFIG.MODE || 'public').toUpperCase()}*`,
+          `> │ 📞 *Anti-call* › ${state(CONFIG.ANTICALL)}`,
+          `> │ 🗑️ *Anti-delete* › ${state(CONFIG.ANTIDELETE)}`,
+          `> │ ✏️ *Anti-edit* › ${state(CONFIG.ANTIEDIT)}`,
+          `> │ 📖 *Auto-read* › ${state(CONFIG.AUTO_READ)}`,
+          `> │ 👁️ *Auto-view* › ${state(CONFIG.AUTO_VIEW)}`,
+          `> │ ❤️ *Auto-like* › ${state(CONFIG.AUTO_LIKE)}`,
+          `> │ 💬 *DM presence* › ${CONFIG.DM_PRESENCE || 'none'}`,
+          `> │ 👥 *Group presence* › ${CONFIG.GRP_PRESENCE || 'none'}`,
+          `> │ 📅 *Connected at* › ${connectedAt.format('DD/MM/YYYY HH:mm:ss')}`,
+          `> │ 📢 *Channel* › ${CONFIG.CHANNEL_URL || 'not configured'}`,
+          `> ╰⊷ ✨ _Powered by ${ownerName}_`
+        ].join('\n')
+        const linkedAccountJid = getCleanJid(sock.user?.id || sock.user?.lid)
+        const targetJid = getOwnerJid() || linkedAccountJid
+        if (targetJid) {
           setTimeout(async () => {
             try {
-              const ownerJid = getOwnerJid()
-              if (ownerJid) {
-                await sock.sendMessage(ownerJid, {
-                  text: connInfo,
-                  contextInfo: {
-                    forwardingScore: 1,
-                    isForwarded: true,
-                    forwardedNewsletterMessageInfo: {
-                      newsletterJid: CONFIG.CHANNEL_JID,
-                      newsletterName: CONFIG.BOT_NAME,
-                      serverMessageId: -1
-                    }
-                  }
-                })
-                console.log(`✅ Start message sent to owner: ${ownerJid}`)
-              }
+              await sock.sendMessage(targetJid, { text: connInfo })
+              console.log('✅ ULTRA GURU connected status table sent')
             } catch (err) {
               logError('Send Connection Message', null, null, err.message)
+              if (linkedAccountJid && linkedAccountJid !== targetJid) {
+                try {
+                  await sock.sendMessage(linkedAccountJid, { text: connInfo })
+                  console.log('✅ ULTRA GURU status table sent to linked account')
+                  return
+                } catch (fallbackError) {
+                  logError('Send Connection Message Fallback', null, null, fallbackError.message)
+                }
+              }
+              connectionMessageSent = false
             }
           }, 2000)
+        } else {
+          connectionMessageSent = false
+          logError('Send Connection Message', null, null, 'No owner or linked-account JID is available.')
         }
       }
     })
@@ -675,7 +699,9 @@ async function start() {
           logError('Status Save/Send Reply', null, null, err.message)
         }
 
-        if (!isFromMe && !isEdit && /^\d+$/.test(String(body).trim())) {
+        const linkedJids = [sockUserJid, sock.user?.lid].filter(Boolean).map(getCleanJid)
+        const isLinkedSelfChat = linkedJids.includes(getCleanJid(from))
+        if ((!isFromMe || isLinkedSelfChat) && !isEdit && /^\d+$/.test(String(body).trim())) {
           const selectionAllowed = CONFIG.MODE !== 'private' || isAllowedUser(msg, sockUserJid)
           if (selectionAllowed) {
             try {

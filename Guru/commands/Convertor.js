@@ -329,6 +329,79 @@ export const commands = [
     }
   },
   {
+    name: 'compress',
+    aliases: ['compressvideo', 'reducevideo'],
+    description: 'Compress and re-encode a replied-to or captioned video as WhatsApp-compatible MP4.',
+    category: 'Converter',
+    execute: async ({ sock, from, msg }) => {
+      const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+      const quotedVideo = quoted?.videoMessage;
+      const directVideo = msg.message?.videoMessage;
+      if (!quotedVideo && !directVideo) {
+        return sock.sendMessage(from, { text: 'Reply to a video with .compress, or send .compress as the video caption.' }, { quoted: msg });
+      }
+      if (!ffmpegStatic) {
+        return sock.sendMessage(from, { text: '❌ Video conversion is unavailable on this deployment.' }, { quoted: msg });
+      }
+
+      let tempDir;
+      try {
+        await sock.sendMessage(from, { text: '⏳ Compressing your video for WhatsApp…' }, { quoted: msg });
+        const sourceMsg = quotedVideo ? { message: quoted } : { message: msg.message };
+        const inputBuffer = await downloadMediaMessage(sourceMsg, 'buffer', {}, { logger: console });
+        if (inputBuffer.length > 150 * 1024 * 1024) {
+          return sock.sendMessage(from, { text: '❌ The source video is too large to process (150 MB maximum).' }, { quoted: msg });
+        }
+
+        tempDir = await fs.mkdtemp(path.join(tmpdir(), 'ultra-guru-compress-'));
+        const inputPath = path.join(tempDir, 'input-video');
+        const outputPath = path.join(tempDir, 'compressed.mp4');
+        await fs.writeFile(inputPath, inputBuffer);
+
+        await new Promise((resolve, reject) => {
+          let command;
+          let settled = false;
+          const finish = (error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            error ? reject(error) : resolve();
+          };
+          const timer = setTimeout(() => {
+            command?.kill('SIGKILL');
+            finish(new Error('Video compression timed out.'));
+          }, 180000);
+          command = ffmpeg(inputPath)
+            .videoCodec('libx264')
+            .audioCodec('aac')
+            .audioBitrate('96k')
+            .outputOptions(['-map 0:v:0', '-map 0:a?', '-preset veryfast', '-crf 28', '-movflags +faststart'])
+            .format('mp4')
+            .on('end', () => finish())
+            .on('error', error => finish(error));
+          command.save(outputPath);
+        });
+
+        const outputStats = await fs.stat(outputPath);
+        if (outputStats.size > 64 * 1024 * 1024) {
+          return sock.sendMessage(from, { text: '❌ The compressed video is still over 64 MB. Try a shorter clip.' }, { quoted: msg });
+        }
+        const videoBuffer = await fs.readFile(outputPath);
+        await sock.sendMessage(from, {
+          video: videoBuffer,
+          mimetype: 'video/mp4',
+          fileName: 'ultra-guru-compressed.mp4',
+          caption: '✅ Compressed to WhatsApp-compatible MP4.'
+        }, { quoted: msg });
+      } catch (error) {
+        console.error('[COMPRESS] Video conversion failed:', error.message);
+        await sock.sendMessage(from, { text: '❌ Could not compress this video. Try a smaller or standard MP4 file.' }, { quoted: msg });
+      } finally {
+        if (tempDir && await fs.pathExists(tempDir)) await fs.remove(tempDir);
+      }
+    }
+  },
+  {
     name: 'take',
     description: 'Take sticker with custom pack name',
     category: 'Converter',
