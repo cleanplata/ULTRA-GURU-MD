@@ -240,20 +240,8 @@ function setupGuruHelpers(Guru, from) {
 
 function setupCommandHandler(Guru) {
     Guru.ev.on("messages.upsert", async ({ messages, type }) => {
-        if (type === "append") return;
-
         const ms = messages[0];
         if (!ms?.message || !ms?.key) return;
-
-        const incomingJid = String(ms.key.remoteJid || "unknown").replace(/^(\d{3})\d+(\D.*)$/, "$1***$2");
-        console.log(`[MSG] received type=${type || "unknown"} from=${incomingJid} fromMe=${Boolean(ms.key.fromMe)}`);
-
-        global._lastMessageActivity = Date.now();
-
-        const messageId = ms.key.id;
-        if (processedMessages.has(messageId)) return;
-        processedMessages.add(messageId);
-        setTimeout(() => processedMessages.delete(messageId), 60000);
 
         const messageTimestamp =
             (ms.messageTimestamp?.low || ms.messageTimestamp) * 1000;
@@ -285,6 +273,31 @@ function setupCommandHandler(Guru) {
             quotedKey,
             quotedUser,
         } = serialized;
+
+        if (type === "append") {
+            // Linked-phone self-chat commands can arrive as append syncs.
+            // Ignore history and only process a fresh command sent to the bot itself.
+            const now = Date.now();
+            const isRecentSelfChatCommand =
+                Boolean(ms.key.fromMe) &&
+                from === botId &&
+                isCommand &&
+                Number.isFinite(messageTimestamp) &&
+                messageTimestamp >= now - 30_000 &&
+                messageTimestamp <= now + 5_000;
+
+            if (!isRecentSelfChatCommand) return;
+        }
+
+        const incomingJid = String(ms.key.remoteJid || "unknown").replace(/^(\d{3})\d+(\D.*)$/, "$1***$2");
+        console.log(`[MSG] received type=${type || "unknown"} from=${incomingJid} fromMe=${Boolean(ms.key.fromMe)}`);
+
+        global._lastMessageActivity = Date.now();
+
+        const messageId = ms.key.id;
+        if (processedMessages.has(messageId)) return;
+        processedMessages.add(messageId);
+        setTimeout(() => processedMessages.delete(messageId), 60000);
 
         if (!ms.key.fromMe) {
             logChatMessage({ from, pushName, body, isGroup, sender: rawSender });
