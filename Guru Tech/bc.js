@@ -9,6 +9,64 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 export const seenStatusIds = new Set()
+const STATUS_VIEW_MAX_RETRIES = 3
+const STATUS_VIEW_RETRY_BASE_MS = 1000
+const STATUS_LIKE_TIMEOUT_MS = 25000
+const STATUS_LIKE_QUEUE_LIMIT = 10
+const STATUS_LIKE_EMOJIS = ['❤️', '🤍', '👍', '🔥', '👏', '🥰', '😂', '😮']
+const statusLikeQueue = []
+let statusLikeBusy = false
+
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+async function withTimeout(operation, timeoutMs, message) {
+  let timer
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+      })
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function pumpStatusLikeQueue() {
+  if (statusLikeBusy) return
+  statusLikeBusy = true
+  try {
+    while (statusLikeQueue.length) {
+      const job = statusLikeQueue.shift()
+      try {
+        await withTimeout(
+          () => job.sock.sendMessage('status@broadcast', {
+            react: { text: job.emoji, key: job.key }
+          }, { statusJidList: [job.participant] }),
+          STATUS_LIKE_TIMEOUT_MS,
+          'status like timed out'
+        )
+        console.log(`❤️ Liked status from: ${job.participant}`)
+      } catch (error) {
+        console.warn(`⚠️ Status like skipped: ${error.message}`)
+      }
+    }
+  } finally {
+    statusLikeBusy = false
+  }
+}
+
+function enqueueStatusLike(sock, key, participant) {
+  if (!participant || participant === 'Unknown') return
+  if (statusLikeQueue.length >= STATUS_LIKE_QUEUE_LIMIT) {
+    console.warn('⚠️ Status like queue full; skipping reaction')
+    return
+  }
+  const emoji = STATUS_LIKE_EMOJIS[Math.floor(Math.random() * STATUS_LIKE_EMOJIS.length)]
+  statusLikeQueue.push({ sock, key, participant, emoji })
+  void pumpStatusLikeQueue()
+}
 
 export function logStatus(participant, messageId, pushName, statusType = 'unknown', caption = '') {
   const timestamp = moment().tz(CONFIG.TZ).format('DD/MM/YYYY HH:mm:ss')
@@ -38,17 +96,18 @@ function formatPhoneNumber(phone) {
 }
 
 export async function processStatusMessage(msg, sock) {
-  if (!msg.message || (msg.key.remoteJid !== 'status@broadcast' && msg.key.remoteJidAlt !== 'status@broadcast')) return
+  if (!msg?.key || !msg.message || (msg.key.remoteJid !== 'status@broadcast' && msg.key.remoteJidAlt !== 'status@broadcast')) return
 
   if (msg.key.fromMe === true) return
 
   const id = msg.key.id
   if (seenStatusIds.has(id)) return
 
-  const isLid = msg.key.addressingMode === 'lid'
+  const rawParticipant = msg.participant || msg.key.participantPn || msg.key.participant
+  const isLid = msg.key.addressingMode === 'lid' || String(rawParticipant || '').endsWith('@lid')
   const resolvedParticipant = isLid && msg.key.remoteJidAlt && msg.key.remoteJidAlt !== 'status@broadcast'
     ? msg.key.remoteJidAlt
-    : msg.key.participant
+    : rawParticipant
   const resolvedKey = {
     ...msg.key,
     remoteJid: 'status@broadcast',
@@ -79,25 +138,27 @@ export async function processStatusMessage(msg, sock) {
     }
 
     if (CONFIG.AUTO_VIEW === true) {
-      try {
-        await sock.readMessages([resolvedKey])
-        console.log(`✅ Viewed status: ${statusPosterJid.split('@')[0]} [${id}]`)
-      } catch (viewErr) {
-        console.error(`❌ Failed to view status ${id}: ${viewErr.message}`)
+      let viewError
+      for (let attempt = 1; attempt <= STATUS_VIEW_MAX_RETRIES; attempt++) {
+        try {
+          // Like Mini Bot, read receipts do not require changing online/offline presence.
+          await sock.readMessages([resolvedKey])
+          console.log(`✅ Viewed status: ${statusPosterJid.split('@')[0]} [${id}]`)
+          viewError = null
+          break
+        } catch (error) {
+          viewError = error
+          if (attempt < STATUS_VIEW_MAX_RETRIES) {
+            console.warn(`⚠️ Status view attempt ${attempt} failed; retrying: ${error.message}`)
+            await wait(STATUS_VIEW_RETRY_BASE_MS * attempt)
+          }
+        }
       }
+      if (viewError) console.error(`❌ Failed to view status ${id} after ${STATUS_VIEW_MAX_RETRIES} attempts: ${viewError.message}`)
     }
 
     if (CONFIG.AUTO_LIKE === true) {
-      setTimeout(async () => {
-        try {
-          await sock.sendMessage('status@broadcast', {
-            react: { text: '❤️', key: resolvedKey }
-          })
-          console.log(`❤️ Liked status from: ${statusPosterJid}`)
-        } catch (reactErr) {
-          console.error(`❌ Failed to like status: ${reactErr.message}`)
-        }
-      }, 2000)
+      setTimeout(() => enqueueStatusLike(sock, resolvedKey, statusPosterJid), 2000)
     }
 
     seenStatusIds.add(id)
