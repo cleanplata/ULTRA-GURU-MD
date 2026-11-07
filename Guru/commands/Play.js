@@ -1,6 +1,6 @@
 import yts from 'yt-search'
 import axios from 'axios'
-import { API_CONFIG, MESSAGES } from '../france/index.js'
+import { API_CONFIG, MESSAGES } from '../france/config.js'
 import ffmpegStatic from 'ffmpeg-static'
 import fs from 'fs'
 import os from 'os'
@@ -13,6 +13,7 @@ const MAX_SOURCE_BYTES = 80 * 1024 * 1024
 const MAX_WHATSAPP_AUDIO_BYTES = 15 * 1024 * 1024
 const PLAY_API_TIMEOUT_MS = 12000
 const PLAY_DOWNLOAD_TIMEOUT_MS = 45000
+const PLAY_VIDEO_DOWNLOAD_TIMEOUT_MS = 120000
 
 function findFfmpegPath() {
   const candidates = [ffmpegStatic, 'ffmpeg', '/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg'].filter(Boolean)
@@ -37,6 +38,14 @@ function safeDisplay(value, fallback = 'N/A') {
   return String(value || fallback).replace(/[\r\n]+/g, ' ').trim().slice(0, 160) || fallback
 }
 
+function getDurationSeconds(video) {
+  const seconds = Number(video?.seconds)
+  if (Number.isFinite(seconds) && seconds > 0) return seconds
+  const parts = String(video?.timestamp || '').split(':').map(Number)
+  if (!parts.length || parts.length > 3 || parts.some(part => !Number.isFinite(part))) return 0
+  return parts.reduce((total, part) => total * 60 + part, 0)
+}
+
 function safeErrorSummary(error) {
   return String(error?.stderr || error?.message || 'Unknown error')
     .replace(/https?:\/\/[^\s\"')]+/gi, '[URL]')
@@ -50,9 +59,16 @@ function extractAudioSource(payload) {
     payload?.audio,
     payload?.audioUrl,
     payload?.audio_url,
+    payload?.stream?.audio,
+    payload?.download?.audio,
     payload?.downloadUrl,
     payload?.download_url,
     payload?.mp3,
+    payload?.video,
+    payload?.videoUrl,
+    payload?.video_url,
+    payload?.stream?.video,
+    payload?.download?.video,
     payload?.url
   ]
   for (const candidate of candidates) {
@@ -164,6 +180,17 @@ async function transcodeToMp3(inputPath, outputPath, ffmpegPath, runFile) {
   ], { timeout: 90000, maxBuffer: 4 * 1024 * 1024 })
 }
 
+async function transcodeRemoteVideoToMp3(inputUrl, outputPath, ffmpegPath, runFile) {
+  await runFile(ffmpegPath, [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-user_agent', 'Mozilla/5.0 ULTRA-GURU',
+    '-rw_timeout', '45000000',
+    '-i', inputUrl, '-vn',
+    '-c:a', 'libmp3lame', '-b:a', '128k', '-ar', '44100', '-ac', '2',
+    '-f', 'mp3', outputPath
+  ], { timeout: PLAY_VIDEO_DOWNLOAD_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 })
+}
+
 export async function runPlay({ sock, from, text, msg, config }, dependencies = {}) {
   const botName = config?.BOT_NAME || 'ULTRA GURU'
   const ownerName = config?.OWNER_NAME || 'GuruTech'
@@ -230,7 +257,7 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
     if (endpoint) {
       const downloadApiUrl = new URL(endpoint)
       downloadApiUrl.searchParams.set('url', videoUrl)
-      for (let attempt = 0; attempt < 2 && !audioResult; attempt++) {
+      for (let attempt = 0; attempt < 1 && !audioResult; attempt++) {
         try {
           const apiResponse = await httpGet(downloadApiUrl.toString(), {
             timeout,
@@ -243,10 +270,35 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
           if (!audioSource || responseBody?.status === false || responseBody?.success === false) {
             throw new Error('Hosted downloader did not return audio.')
           }
-          audioResult = await loadAudio(audioSource, httpGet, downloadTimeout)
+          const isVideoSource = Boolean(
+            payload?.video || payload?.videoUrl || payload?.video_url ||
+            payload?.stream?.video || payload?.download?.video
+          )
+          if (isVideoSource && typeof audioSource === 'string' && /^https?:\/\//i.test(audioSource) && ffmpegPath) {
+            tempDir ||= fs.mkdtempSync(path.join(os.tmpdir(), 'ultra-guru-play-'))
+            const outputPath = path.join(tempDir, 'hosted-audio.mp3')
+            try {
+              await transcodeRemoteVideoToMp3(audioSource, outputPath, ffmpegPath, runFile)
+              const buffer = fs.readFileSync(outputPath)
+              const minimumAudioBytes = Math.max(2048, getDurationSeconds(video) * 4000)
+              if (buffer.length < minimumAudioBytes) {
+                throw new Error('Hosted video stream produced an incomplete MP3; retrying as a complete-file download.')
+              }
+              audioResult = { buffer, contentType: 'audio/mpeg', source: outputPath, alreadyMp3: true }
+            } catch (streamError) {
+              if (/timeout|timed out|ETIMEDOUT|ECONNABORTED/i.test(String(streamError?.message || ''))) throw streamError
+              console.warn('[PLAY] Remote video stream was incomplete; retrying as a complete-file download:', safeErrorSummary(streamError))
+              audioResult = await loadAudio(audioSource, httpGet, PLAY_VIDEO_DOWNLOAD_TIMEOUT_MS)
+            }
+          } else {
+            audioResult = await loadAudio(
+              audioSource,
+              httpGet,
+              isVideoSource ? PLAY_VIDEO_DOWNLOAD_TIMEOUT_MS : downloadTimeout
+            )
+          }
         } catch (error) {
           hostedError = error
-          if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 350))
         }
       }
     } else {
@@ -279,10 +331,12 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
     let sourceReference
     let sourceContentType = ''
     let localSourcePath = null
+    let audioAlreadyMp3 = false
     if (audioResult?.buffer?.length) {
       audioBuffer = audioResult.buffer
       sourceReference = audioResult.source
       sourceContentType = audioResult.contentType
+      audioAlreadyMp3 = Boolean(audioResult.alreadyMp3)
     } else {
       if (!ffmpegPath) throw hostedError || new Error('MP3 conversion is unavailable.')
       const providerError = miniApiError || hostedError
@@ -300,7 +354,7 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
 
     const title = safeFileName(payload?.title || video.title || query)
     let audioFileName = `${title}.mp3`
-    if (ffmpegPath) {
+    if (ffmpegPath && !audioAlreadyMp3) {
       tempDir ||= fs.mkdtempSync(path.join(os.tmpdir(), 'ultra-guru-play-'))
       const inputPath = localSourcePath || path.join(tempDir, `source.${extensionFrom(sourceReference, sourceContentType)}`)
       const outputPath = path.join(tempDir, 'audio.mp3')

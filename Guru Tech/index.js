@@ -618,10 +618,22 @@ async function start() {
           '> ╰⊷'
         ].join('\n')
         const statusPayload = { text: connInfo }
+        if (CONFIG.CHANNEL_URL) {
+          statusPayload.contextInfo = {
+            externalAdReply: {
+              title: `${CONFIG.BOT_NAME} Updates`,
+              body: 'Tap to open the official WhatsApp Channel',
+              sourceUrl: CONFIG.CHANNEL_URL,
+              thumbnailUrl: CONFIG.BOT_PIC,
+              mediaType: 1,
+              renderLargerThumbnail: true,
+              showAdAttribution: false
+            }
+          }
+        }
         if (linkedAccountJid) statusPayload.mentions = [linkedAccountJid]
         if (targetJid) {
           setTimeout(async () => {
-            let deliveredTo = targetJid
             try {
               await sock.sendMessage(targetJid, statusPayload)
               console.log('✅ ULTRA GURU connected status table sent')
@@ -630,7 +642,6 @@ async function start() {
               if (linkedAccountJid && linkedAccountJid !== targetJid) {
                 try {
                   await sock.sendMessage(linkedAccountJid, statusPayload)
-                  deliveredTo = linkedAccountJid
                   console.log('✅ ULTRA GURU status table sent to linked account')
                 } catch (fallbackError) {
                   logError('Send Connection Message Fallback', null, null, fallbackError.message)
@@ -643,26 +654,6 @@ async function start() {
               }
             }
 
-            if (CONFIG.CHANNEL_URL) {
-              try {
-                await sock.sendMessage(deliveredTo, {
-                  text: `📢 *${CONFIG.BOT_NAME} WhatsApp Channel*`,
-                  contextInfo: {
-                    externalAdReply: {
-                      title: `${CONFIG.BOT_NAME} Updates`,
-                      body: 'Tap to open the official WhatsApp Channel',
-                      sourceUrl: CONFIG.CHANNEL_URL,
-                      thumbnailUrl: CONFIG.BOT_PIC,
-                      mediaType: 1,
-                      renderLargerThumbnail: true,
-                      showAdAttribution: false
-                    }
-                  }
-                })
-              } catch (channelError) {
-                logError('Send Channel Preview', null, null, channelError.message)
-              }
-            }
           }, 2000)
         } else {
           connectionMessageSent = false
@@ -839,18 +830,12 @@ async function start() {
           typeMsg
         )
 
-        if (String(CONFIG.MODE || 'private').toLowerCase() === 'group' && !isGroupChat) {
-          let possibleCommand = ''
-          const trimmedBody = String(body || '').trim()
-          if (CONFIG.PREFIXES.length === 0) possibleCommand = trimmedBody.split(/\s+/)[0].toLowerCase()
-          else {
-            const matchedPrefix = CONFIG.PREFIXES.find(prefix => trimmedBody.startsWith(prefix))
-            if (matchedPrefix) possibleCommand = trimmedBody.slice(matchedPrefix.length).trim().split(/\s+/)[0].toLowerCase()
-          }
-          const resolvedPrivateCommand = commandAliases.get(possibleCommand) || possibleCommand
-          const ownerCanChangeMode = resolvedPrivateCommand === 'mod' && (isDevUser(senderJid) || getSenderPhone(senderJid) === OWNER_NUMBER)
-          if (!ownerCanChangeMode) continue
-        }
+        if (
+          String(CONFIG.MODE || 'private').toLowerCase() === 'group' &&
+          !isGroupChat &&
+          !isDevUser(senderJid) &&
+          getSenderPhone(senderJid) !== OWNER_NUMBER
+        ) continue
 
         try {
           const statusReplied = await handleStatusReply(msg, sock, senderJid)
@@ -865,7 +850,8 @@ async function start() {
         const isLinkedSelfChat = linkedJids.includes(getCleanJid(from))
         if ((!isFromMe || isLinkedSelfChat) && !isEdit && /^\d+$/.test(String(body).trim())) {
           const currentMode = String(CONFIG.MODE || 'private').toLowerCase()
-          const selectionAllowed = (currentMode !== 'group' || isGroupChat) && (currentMode !== 'private' || isAllowedUser(msg, sockUserJid))
+          const isOwner = isDevUser(senderJid) || getSenderPhone(senderJid) === OWNER_NUMBER
+          const selectionAllowed = (currentMode !== 'group' || isGroupChat || isOwner) && (currentMode !== 'private' || isAllowedUser(msg, sockUserJid))
           if (selectionAllowed) {
             try {
               const handled = await handleMenuCategoryReply({ sock, from, sender: senderJid, msg, body })
@@ -928,8 +914,8 @@ async function start() {
         }
 
         const currentMode = String(CONFIG.MODE || 'private').toLowerCase()
-        const ownerMayChangeMode = name === 'mod' && (isDevUser(senderJid) || getSenderPhone(senderJid) === OWNER_NUMBER)
-        if (currentMode === 'group' && !isGroupChat && !ownerMayChangeMode) continue
+        const ownerMayUsePrivateChat = isDevUser(senderJid) || getSenderPhone(senderJid) === OWNER_NUMBER
+        if (currentMode === 'group' && !isGroupChat && !ownerMayUsePrivateChat) continue
 
         const commandKey = `${msg.key.id}_${name}`
         if (executingCommands.has(commandKey)) {
