@@ -89,7 +89,7 @@ const CONFIG = {
   CHANNEL_URL: process.env.CHANNEL_URL || process.env.NEWSLETTER_URL || DEFAULT_CHANNEL_URL,
   HOSTING_URL: process.env.HOSTING_URL || 'https://cheap.bothosting.gurutech.top',
   HOSTING_PROVIDER: process.env.HOSTING_PROVIDER || 'Bothosting',
-  GITHUB_REPO: process.env.GITHUB_REPO || 'cleanplata/ULTRA-GURU-MD',
+  GITHUB_REPO: process.env.GITHUB_REPO || 'GuruhTech/ULTRA-GURU',
 }
 
 export { normalizeSession }

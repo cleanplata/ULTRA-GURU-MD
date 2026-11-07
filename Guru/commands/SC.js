@@ -11,7 +11,7 @@ export const commands = [
       const botName = currentConfig.BOT_NAME || 'ULTRA GURU'
       const botVersion = currentConfig.BOT_VERSION || '3.0.0'
       const ownerName = currentConfig.OWNER_NAME || 'GuruTech'
-      const repository = String(currentConfig.GITHUB_REPO || 'cleanplata/ULTRA-GURU-MD')
+      const repository = String(currentConfig.GITHUB_REPO || 'GuruhTech/ULTRA-GURU')
         .replace(/^https?:\/\/github\.com\//i, '')
         .replace(/\.git$/i, '')
         .replace(/\/+$/, '')

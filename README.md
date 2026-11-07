@@ -1,6 +1,6 @@
 # ULTRA GURU WhatsApp Bot
 
-This is the ULTRA GURU bot repository: [`cleanplata/ULTRA-GURU-MD`](https://github.com/cleanplata/ULTRA-GURU-MD). Runtime defaults use the configured ULTRA GURU name, GuruTech owner label, bot image, WhatsApp channel, and current GitHub repository. Existing Heroku config vars remain in place when a new commit is deployed.
+This is the ULTRA GURU bot repository: [`GuruhTech/ULTRA-GURU`](https://github.com/GuruhTech/ULTRA-GURU). Runtime defaults use the configured ULTRA GURU name, GuruTech owner label, bot image, WhatsApp channel, and current GitHub repository. Existing Heroku config vars remain in place when a new commit is deployed.
 
 ## Folder layout
 

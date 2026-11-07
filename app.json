@@ -1,8 +1,13 @@
 {
   "name": "ULTRA-GURU-MD",
   "description": "ULTRA GURU WhatsApp Multi-Device Bot",
-  "repository": "https://github.com/cleanplata/ULTRA-GURU-MD",
-  "keywords": ["whatsapp", "baileys", "bot", "ultra-guru"],
+  "repository": "https://github.com/GuruhTech/ULTRA-GURU",
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "bot",
+    "ultra-guru"
+  ],
   "env": {
     "MODE": {
       "description": "Bot mode (private or public)",

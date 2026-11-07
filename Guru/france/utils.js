@@ -274,7 +274,7 @@ export async function downloadContentFromMessage(message, type) {
 
 export const fetchRepoStats = async () => {
   try {
-    const response = await axios.get(`https://api.github.com/repos/${ROOT_CONFIG.GITHUB_REPO || 'cleanplata/ULTRA-GURU-MD'}`);
+    const response = await axios.get(`https://api.github.com/repos/${ROOT_CONFIG.GITHUB_REPO || 'GuruhTech/ULTRA-GURU'}`);
     const { forks_count, stargazers_count, watchers_count, created_at, pushed_at } = response.data;
     return {
       forks: forks_count || 0,
