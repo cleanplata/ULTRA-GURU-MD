@@ -1,473 +1,760 @@
-// ════════════════════════════════════════════════════════════════════════════
-//  ULTRA GURU MD — Bot Entry Point
-//  by GuruTech | github.com/GuruhTech
-// ════════════════════════════════════════════════════════════════════════════
+import { createRequire } from 'module';
+globalThis.require = createRequire(import.meta.url);
 
-"use strict";
+import Pino from 'pino'
+import fs from 'fs'
+import path from 'path'
+import express from 'express'
+import { Boom } from '@hapi/boom'
+import { fileURLToPath } from 'url'
+import moment from 'moment-timezone'
+import { loadSudoList } from './utils/sudoStore.js'
+import CONFIG from './config.js'
+import {
+  seenStatusIds,
+  processStatusMessage,
+  handleStatusReply,
+  logStatus
+} from './bc.js'
+import {
+  default as makeWASocket,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  useMultiFileAuthState,
+  downloadMediaMessage
+} from '@whiskeysockets/baileys'
+import { handleDeletedMessage, handleEditedMessage, messageStore, cleanMessageStore } from './anti.js'
 
-// ─── Polyfills (must be first) ───────────────────────────────────────────────
-require("events").EventEmitter.defaultMaxListeners = 960;
-if (!globalThis.crypto) globalThis.crypto = require("crypto").webcrypto;
-try { if (typeof File === "undefined") globalThis.File = require("buffer").File; } catch (_) {}
+global.ALLOWED_USERS = loadSudoList()
 
-// ─── Crash visibility ─────────────────────────────────────────────────────────
-// Nothing in this app previously caught unhandled rejections or uncaught
-// exceptions, so a stray throw during boot (e.g. from a DB call) could vanish
-// with zero log output instead of showing up here. These make that impossible.
-process.on("unhandledRejection", (reason) => {
-    console.error("❌ [UNHANDLED REJECTION]", reason?.stack || reason);
-});
-process.on("uncaughtException", (err) => {
-    console.error("❌ [UNCAUGHT EXCEPTION]", err?.stack || err);
-});
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
-// ─── Node & Third-Party ──────────────────────────────────────────────────────
-const path    = require("path");
-const http    = require("http");
-const express = require("express");
+let OWNER_NUMBER = null
+let OWNER_LIDS = []
+let OWNER_FULL_JID = null
 
-const {
-    default: makeWASocket,
-    jidNormalizedUser,
-    fetchLatestWaWebVersion,
-} = require("@whiskeysockets/baileys");
+const processedMessages = new Set()
+const MESSAGE_TIMEOUT = 3000
+const executingCommands = new Set()
+const presenceTimers = new Map()
 
-// ─── Guru Core ───────────────────────────────────────────────────────────────
-require("./guru/gmdHelpers");
+const phoneToLidMap = new Map()
+const lidToPhoneMap = new Map()
 
-const {
-    logger, commands,
-    loadSession, useSQLiteAuthState,
-    safeNewsletterFollow, safeGroupAcceptInvite,
-    setupConnectionHandler, setupGroupEventsListeners,
-    initializeLidStore, getAllSettings, DEFAULT_SETTINGS,
-    createSocketConfig, createContext,
-    syncDatabase, initializeSettings, initializeGroupSettings,
-    loadPlugins,
-} = require("./guru");
-
-const { startCleanup, SQLiteStore }      = require("./guru/database/messageStore");
-const { setupCommandHandler }            = require("./guru/messageHandler");
-const {
-    setupAutoReact, setupAntiDelete, setupAutoBio,
-    setupAntiCall, setupPresence, setupChatBotAndAntiLink,
-    setupAntiEdit, setupStatusHandlers,
-} = require("./guru/eventHandlers");
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-const PORT            = process.env.PORT || 5000;
-const SESSION_DIR     = path.join(__dirname, "guru", "session");
-const PLUGINS_DIR     = path.join(__dirname, "guruh");
-const MEMORY_LIMIT    = 400 * 1024 * 1024; // 400 MB (used only when the host limit is unknown)
-const AUTO_RESTART_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-// boot.js sets these. SUPERVISED means a parent process will start the bot again
-// after it exits, so a deliberate restart is safe. Run directly with
-// `node index.js` and no restart ever happens, because nothing would bring it back.
-const SUPERVISED   = process.env.BOOT_SUPERVISED === "1";
-const MEM_LIMIT_MB = Number(process.env.BOT_MEM_LIMIT_MB) || 0;
-
-const sessionBackup = require("./guru/sessionBackup");
-
-logger.level = "silent";
-
-// ─── Mutable State ───────────────────────────────────────────────────────────
-let GuruSocket = null;
-let store      = null;
-let botSettings = {};
-
-// ════════════════════════════════════════════════════════════════════════════
-//  WEB SERVER
-// ════════════════════════════════════════════════════════════════════════════
-
-function startWebServer() {
-    const app = express();
-
-    app.use(express.json());
-    app.use(express.static("guru"));
-    app.get("/",       (_req, res) => res.sendFile(path.join(__dirname, "guru", "guru.html")));
-    app.get("/pair",   (_req, res) => res.sendFile(path.join(__dirname, "guru", "pair.html")));
-    app.get("/health", (_req, res) => res.status(200).json({
-        status: "alive",
-        uptime: process.uptime(),
-        whatsapp: global._botDisconnected
-            ? "disconnected"
-            : (global._botConnected ? "connected" : "connecting"),
-        reason: global._botDisconnectReason || null,
-    }));
-
-    // ── Pairing API ───────────────────────────────────────────────────────────
-    const pairing = require("./guru/pairing");
-
-    app.post("/api/pair", async (req, res) => {
-        const phone = (req.body?.phone || "").replace(/\D/g, "");
-        if (!phone || phone.length < 7) {
-            return res.json({ ok: false, error: "Invalid phone number." });
-        }
-        pairing.startPairing(phone).catch(() => {});
-        res.json({ ok: true });
-    });
-
-    app.get("/api/pair/status", (_req, res) => {
-        res.json(pairing.getStatus());
-    });
-
-    app.get("/api/pair/cancel", (_req, res) => {
-        pairing.cancelPairing();
-        res.json({ ok: true });
-    });
-
-    const server = app.listen(PORT, "0.0.0.0", () =>
-        console.log(`✅ Server Running on Port: ${PORT}`)
-    );
-
-    server.on("error", (err) => {
-        if (err.code !== "EADDRINUSE") return console.error("Server error:", err.message);
-        console.warn(`⚠️ Port ${PORT} in use — retrying in 3s...`);
-        setTimeout(() => {
-            server.close(() => {
-                const retry = app.listen(PORT, "0.0.0.0", () =>
-                    console.log(`✅ Server Running on Port: ${PORT}`)
-                );
-                retry.on("error", (e) => console.error("Retry failed:", e.message));
-            });
-        }, 3000);
-    });
+function getPhoneFromJid(jid) {
+  if (!jid) return null
+  if (jid.includes('@s.whatsapp.net')) {
+    const match = jid.match(/^(\d+)@/)
+    return match ? match[1] : null
+  }
+  if (jid.includes('@lid')) {
+    const match = jid.match(/^(\d+)@lid/)
+    return match ? match[1] : null
+  }
+  const match = jid.match(/^(\d+):/)
+  if (match) return match[1]
+  const simpleMatch = jid.match(/^(\d+)@/)
+  return simpleMatch ? simpleMatch[1] : null
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  SYSTEM TASKS
-// ════════════════════════════════════════════════════════════════════════════
-
-let _shuttingDown = false;
-
-// Save the session, close cleanly and exit. boot.js starts a fresh process.
-async function shutdownBot(reason, exitCode = 0) {
-    if (_shuttingDown) return;
-    _shuttingDown = true;
-    console.log(`🛑 [SHUTDOWN] ${reason}`);
-    try { store?.destroy(); } catch (_) {}
-    try {
-        await Promise.race([
-            sessionBackup.backupNow(true),
-            new Promise((r) => setTimeout(r, 8_000)),
-        ]);
-    } catch (_) {}
-    process.exit(exitCode);
-}
-
-function gracefulRestart(reason) {
-    if (!SUPERVISED) {
-        console.log(`ℹ️ [RESTART] "${reason}" skipped: not started through boot.js (npm start), so nothing would bring the bot back.`);
-        return;
+function getLidFromJid(jid) {
+  if (!jid) return null
+  if (jid.includes('@lid')) {
+    if (jid.includes(':')) {
+      const match = jid.match(/^(\d+):\d+@lid/)
+      if (match) return `${match[1]}@lid`
     }
-    shutdownBot(`Restarting: ${reason}`);
+    return jid
+  }
+  return null
 }
 
-function startSystemTasks() {
-    // Memory watchdog. A host that runs out of memory kills the process
-    // silently, which looks like the bot "going off" for no reason. Watch the
-    // real process size (RSS, not just the JS heap) and restart cleanly first.
-    setInterval(() => {
-        const mu = process.memoryUsage();
-        if (MEM_LIMIT_MB > 0) {
-            const rssMB = mu.rss / 1024 / 1024;
-            if (rssMB > MEM_LIMIT_MB * 0.80 && global.gc) global.gc();
-            if (rssMB > MEM_LIMIT_MB * 0.92) {
-                console.warn(`⚠️ [MEMORY] ${Math.round(rssMB)}MB used of ${MEM_LIMIT_MB}MB — restarting before the host kills the bot.`);
-                gracefulRestart("memory almost full");
-            }
-        } else if (mu.heapUsed > MEMORY_LIMIT && global.gc) {
-            global.gc();
-        }
-    }, 60_000).unref();
+function getCleanJid(jid) {
+  if (!jid) return null
+  if (jid.includes(':')) {
+    const parts = jid.split(':')
+    return parts[0] + '@' + parts[1].split('@')[1]
+  }
+  return jid
+}
 
-    // Health ping — keeps the server warm
-    setInterval(() => {
-        http.get(`http://localhost:${PORT}/health`, () => {}).on("error", () => {});
-    }, 240_000).unref();
+function getRealSenderJid(msg) {
+  const remoteJid = msg.key?.remoteJidAlt
+  const participant = msg.key?.participantAlt
+  const fromMe = msg.key?.fromMe
 
-    // Scheduled 24-hour restart (only when something will start the bot again)
-    if (SUPERVISED) {
-        setTimeout(() => {
-            console.log("🔄 [AUTO-RESTART] 24-hour restart triggered.");
-            gracefulRestart("24-hour scheduled restart");
-        }, AUTO_RESTART_MS).unref();
-        console.log(`✅ Auto-restart scheduled in 24 hours (${new Date(Date.now() + AUTO_RESTART_MS).toLocaleTimeString()})`);
+  if (fromMe) {
+    return sock?.user?.id || remoteJid
+  }
+
+  if (participant) {
+    return getCleanJid(participant)
+  }
+
+  if (remoteJid && remoteJid.includes('@g.us')) {
+    return getCleanJid(participant || remoteJid)
+  }
+
+  return getCleanJid(remoteJid)
+}
+
+function getSenderPhone(jid) {
+  if (!jid) return 'Unknown'
+  const phone = getPhoneFromJid(jid)
+  if (phone) return phone
+
+  if (lidToPhoneMap.has(jid)) {
+    return lidToPhoneMap.get(jid)
+  }
+
+  return jid.split('@')[0]
+}
+
+function formatPhoneNumber(phone) {
+  if (!phone || phone === 'Unknown') return 'Unknown'
+  const cleaned = phone.replace(/[^\d+]/g, '')
+  return cleaned.startsWith('+') ? cleaned : `+${cleaned}`
+}
+
+function isDevUser(jid) {
+  if (!jid) return false
+
+  const cleanJid = getCleanJid(jid)
+  const phone = getPhoneFromJid(cleanJid)
+  const lid = getLidFromJid(cleanJid)
+
+  const configuredOwnerNumber = (CONFIG.OWNER_NUMBER || '').replace(/\D/g, '')
+  if (phone && (phone === configuredOwnerNumber || phone === OWNER_NUMBER)) return true
+  if (lid && OWNER_LIDS.includes(lid)) return true
+
+  const mappedPhone = lid && lidToPhoneMap.get(lid)
+  return Boolean(mappedPhone && (mappedPhone === configuredOwnerNumber || mappedPhone === OWNER_NUMBER))
+}
+
+function formatLogMessage(type, chatJid, senderJid, senderName, body, isGroup = false, groupName = '', messageId = '', messageType = '') {
+  const timestamp = moment().tz(CONFIG.TZ).format('DD/MM/YYYY HH:mm:ss')
+  const logType = isGroup ? '👥 GROUP' : '👤 PRIVATE'
+  console.log(`\n[📅 ${timestamp}] [${logType}]`)
+  console.log(`├─ 💬 Chat: ${groupName || senderName} (${chatJid})`)
+  const senderPhone = getSenderPhone(senderJid)
+  const senderLid = getLidFromJid(senderJid)
+  console.log(`├─ 👤 Sender: ${senderName} (+${senderPhone})${senderLid ? ` [LID: ${senderLid}]` : ''}`)
+  if (body) console.log(`├─ 📝 Message: ${body}`)
+  console.log(`└─ 🔍 Details: ${messageType} | ${isGroup ? 'Group' : 'Private'} | ${messageId}\n`)
+}
+
+function logError(context, command, user, error) {
+  const timestamp = moment().tz(CONFIG.TZ).format('DD/MM/YYYY HH:mm:ss')
+  console.log(`\n[📅 ${timestamp}] [❌ ERROR]`)
+  console.log(`├─ 🔧 Context: ${context}`)
+  if (command) console.log(`├─ 🎯 Command: ${command}`)
+  if (user) console.log(`├─ 👤 User: ${user}`)
+  console.log(`└─ 💬 Error: ${error}\n`)
+}
+
+function logConnection(event, details = {}) {
+  const timestamp = moment().tz(CONFIG.TZ).format('DD/MM/YYYY HH:mm:ss')
+  console.log(`\n[📅 ${timestamp}] [${event === 'connected' ? '✅ CONNECTED' : '🔄 RECONNECTING'}]`)
+  if (event === 'connected') {
+    console.log(`├─ 🤖 Bot: ${CONFIG.BOT_NAME} v${CONFIG.BOT_VERSION}`)
+    if (details.number) console.log(`├─ 📱 Number: ${details.number}`)
+    if (details.lid) console.log(`├─ 🔑 LID: ${details.lid}`)
+    if (details.mode) console.log(`├─ ⚙️ Mode: ${details.mode}`)
+    if (details.commands) console.log(`└─ 📊 Commands: ${details.commands} loaded\n`)
+  } else {
+    console.log(`├─ 🔌 Reason: ${details.reason || 'Unknown'}`)
+    if (details.attempt) console.log(`├─ 🔢 Attempt: ${details.attempt}`)
+    if (details.delay) console.log(`└─ ⏳ Delay: ${details.delay} seconds\n`)
+  }
+}
+
+function logCommand(senderName, senderNumber, command, location, groupName = '') {
+  const timestamp = moment().tz(CONFIG.TZ).format('DD/MM/YYYY HH:mm:ss')
+  console.log(`\n[📅 ${timestamp}] [⚡ COMMAND]`)
+  if (groupName) console.log(`├─ 💬 Group: ${groupName}`)
+  const displayNumber = senderNumber === 'Unknown' ? 'Unknown' : formatPhoneNumber(senderNumber)
+  console.log(`├─ 👤 Executed By: ${senderName} (${displayNumber})`)
+  console.log(`├─ 🎯 Command: ${command}`)
+  console.log(`└─ 📍 Location: ${location}\n`)
+}
+
+const AUTH_DIR = path.join(__dirname, 'auth')
+const CREDS_PATH = path.join(AUTH_DIR, 'creds.json')
+fs.mkdirSync(AUTH_DIR, { recursive: true })
+if (!fs.existsSync(CREDS_PATH)) {
+  if (!CONFIG.SESSION) {
+    console.error('No WhatsApp session found. Set SESSION or SESSION_ID (both formats are supported).')
+    process.exit(1)
+  }
+  const credsBuffer = Buffer.from(CONFIG.SESSION, 'base64')
+  try {
+    JSON.parse(credsBuffer.toString('utf8'))
+  } catch {
+    console.error('WhatsApp session is not valid base64-encoded credentials JSON.')
+    process.exit(1)
+  }
+  fs.writeFileSync(CREDS_PATH, credsBuffer, { mode: 0o600 })
+}
+if (CONFIG.SESSION) console.log(`[AUTH] Session format accepted: ${CONFIG.SESSION_FORMAT}`)
+
+const commandsDir = path.join(__dirname, 'commands')
+const commands = new Map()
+const commandAliases = new Map()
+
+for (const file of fs.readdirSync(commandsDir).filter(f => f.endsWith('.js'))) {
+  const mod = await import(path.join(commandsDir, file))
+  if (!mod.commands) continue
+  for (const c of mod.commands) {
+    commands.set(c.name.toLowerCase(), c)
+    if (Array.isArray(c.aliases)) {
+      for (const a of c.aliases) commandAliases.set(a.toLowerCase(), c.name.toLowerCase())
     }
+  }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  DATABASE INIT
-// ════════════════════════════════════════════════════════════════════════════
+function isAllowedUser(msg, sockUserJid) {
+  if (CONFIG.MODE === 'public') return true
 
-async function initDatabase() {
-    await withTimeout(syncDatabase(), 30_000, "syncDatabase");
-    console.log("… syncDatabase done");
+  const senderJid = getRealSenderJid(msg)
+  const cleanSenderJid = getCleanJid(senderJid)
+  const senderPhone = getPhoneFromJid(cleanSenderJid)
+  const senderLid = getLidFromJid(cleanSenderJid)
 
-    await withTimeout(initializeSettings(), 30_000, "initializeSettings");
-    console.log("… initializeSettings done");
+  if (msg.key?.fromMe) return true
+  if (cleanSenderJid === getCleanJid(sockUserJid)) return true
+  if (isDevUser(cleanSenderJid)) return true
 
-    await withTimeout(initializeGroupSettings(), 30_000, "initializeGroupSettings");
-    console.log("… initializeGroupSettings done");
+  if (senderPhone && senderPhone === OWNER_NUMBER) return true
+  if (senderLid && OWNER_LIDS.includes(senderLid)) return true
 
-    botSettings = await withTimeout(getAllSettings(), 30_000, "getAllSettings");
-    console.log("… getAllSettings done");
+  const chatJid = getCleanJid(msg.key?.remoteJidAlt)
+  const chatPhone = getPhoneFromJid(chatJid)
+  const chatLid = getLidFromJid(chatJid)
+
+  if (chatPhone && chatPhone === OWNER_NUMBER) return true
+  if (chatLid && OWNER_LIDS.includes(chatLid)) return true
+
+  if (global.ALLOWED_USERS) {
+    if (senderPhone && global.ALLOWED_USERS.has(senderPhone)) return true
+    if (senderLid && global.ALLOWED_USERS.has(senderLid)) return true
+    if (cleanSenderJid && global.ALLOWED_USERS.has(cleanSenderJid)) return true
+  }
+
+  return false
 }
 
-// Generic timeout wrapper: rejects with a labeled error if `promise` doesn't
-// settle in time, instead of letting a stuck DB/network call hang forever
-// with no log output.
-function withTimeout(promise, ms, label) {
-    return Promise.race([
-        promise,
-        new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`[TIMEOUT] ${label} did not complete within ${ms / 1000}s`)), ms)
-        ),
-    ]);
+function isAllowedCaller(callerJid) {
+  if (!callerJid) return false
+  const cleanCallerJid = getCleanJid(callerJid)
+  if (isDevUser(cleanCallerJid)) return true
+
+  const callerPhone = getPhoneFromJid(cleanCallerJid)
+  if (callerPhone && callerPhone === OWNER_NUMBER) return true
+
+  const callerLid = getLidFromJid(cleanCallerJid)
+  if (callerLid && OWNER_LIDS.includes(callerLid)) return true
+
+  return false
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  BOT BOOT
-// ════════════════════════════════════════════════════════════════════════════
+const app = express()
+app.get('/', (_, r) => r.send(`${CONFIG.BOT_NAME} is Running`))
+app.listen(CONFIG.PORT)
 
-// ════════════════════════════════════════════════════════════════════════════
-//  WA VERSION FETCH — with timeout
-// ════════════════════════════════════════════════════════════════════════════
-// fetchLatestWaWebVersion() has no built-in timeout. If the network call
-// stalls (blocked egress, DNS issue, slow endpoint), the whole startGuru()
-// chain hangs silently forever — no error, no log, no retry. This wraps it
-// in a timeout so a stall instead throws and falls into the existing
-// catch-and-retry logic below.
-const WA_VERSION_FETCH_TIMEOUT_MS = 15_000;
+let sock = null
+app.get('/health', (_, res) => {
+  const connected = Boolean(sock?.user?.id)
+  res.status(connected ? 200 : 503).json({ bot: CONFIG.BOT_NAME, whatsapp: connected ? 'connected' : 'disconnected' })
+})
+const groupCache = new Map()
+const readMessagesQueue = new Set()
 
-async function fetchWaVersionWithTimeout() {
-    const timeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`WA version fetch timed out after ${WA_VERSION_FETCH_TIMEOUT_MS / 1000}s`)), WA_VERSION_FETCH_TIMEOUT_MS)
-    );
-    const { version } = await Promise.race([fetchLatestWaWebVersion(), timeout]);
-    return version;
-}
+async function autoReadMessages(keys) {
+  if (!CONFIG.AUTO_READ) return
 
-let _starting = false;
+  try {
+    const messagesToRead = keys.filter(key => !readMessagesQueue.has(key.id))
+    if (messagesToRead.length === 0) return
 
-async function startGuru() {
-    // Never build two sockets at once (watchdog + close event can both ask for
-    // a restart). Two sockets on one session knock each other offline.
-    if (_starting) return;
-    _starting = true;
-    try {
-        // Retire the previous socket so its handlers cannot fire again
-        if (GuruSocket) {
-            try { GuruSocket.ev.removeAllListeners(); } catch (_) {}
-            try { GuruSocket.end(undefined); } catch (_) {}
-            GuruSocket = null;
+    for (const key of messagesToRead) {
+      readMessagesQueue.add(key.id)
+    }
+
+    setTimeout(async () => {
+      try {
+        await sock.readMessages(messagesToRead)
+        for (const key of messagesToRead) {
+          readMessagesQueue.delete(key.id)
         }
+      } catch (error) {
+        logError('Auto Read Messages', null, null, error.message)
+      }
+    }, 1000)
+  } catch (error) {
+    logError('Auto Read Messages', null, null, error.message)
+  }
+}
 
-        console.log("🕗 Fetching WhatsApp Web version...");
-        const version = await fetchWaVersionWithTimeout();
-        console.log(`✅ Using WA Web version: ${version.join(".")}`);
-        const sessionDbPath      = path.join(SESSION_DIR, "session.db");
-        const { state, saveCreds } = await useSQLiteAuthState(sessionDbPath);
+async function updatePresence(jid, presenceType) {
+  if (!sock || !jid) return
 
-        if (store) store.destroy();
-        store = new SQLiteStore();
+  try {
+    await sock.sendPresenceUpdate(presenceType, jid)
+  } catch (error) {
+  }
+}
 
-        // Build socket
-        const socketConfig = createSocketConfig(version, state, logger);
-        socketConfig.getMessage = async (key) => {
-            if (!store) return { conversation: "Error occurred" };
-            const msg = await store.loadMessage(key.remoteJid, key.id);
-            return msg?.message ?? undefined;
-        };
+function shouldShowPresence(isGroup) {
+  if (isGroup) {
+    return CONFIG.GRP_PRESENCE && CONFIG.GRP_PRESENCE !== '' && CONFIG.GRP_PRESENCE !== 'none'
+  } else {
+    return CONFIG.DM_PRESENCE && CONFIG.DM_PRESENCE !== '' && CONFIG.DM_PRESENCE !== 'none'
+  }
+}
 
-        GuruSocket            = makeWASocket(socketConfig);
-        global._botSocket     = GuruSocket;
-        store.bind(GuruSocket.ev);
+function getPresenceType(isGroup) {
+  if (isGroup) {
+    const presence = CONFIG.GRP_PRESENCE?.toLowerCase()
+    if (presence === 'typing') return 'composing'
+    if (presence === 'recording') return 'recording'
+    if (presence === 'online') return 'available'
+  } else {
+    const presence = CONFIG.DM_PRESENCE?.toLowerCase()
+    if (presence === 'typing') return 'composing'
+    if (presence === 'recording') return 'recording'
+    if (presence === 'online') return 'available'
+  }
+  return null
+}
 
-        // ── Track the bot's own outgoing message IDs ────────────────────────
-        // In a self-chat, every message the bot sends to itself arrives back
-        // through the same event stream with fromMe:true — identical to a
-        // genuine command the owner typed. Command handlers that match on
-        // message body (like the "$" shell-exec and ">" eval commands) need
-        // a way to ignore the bot's own echoes without also ignoring real
-        // owner input, so we tag sent IDs here and let handlers check them.
-        global._botSentIds = global._botSentIds || new Set();
-        const _origSendMessage = GuruSocket.sendMessage.bind(GuruSocket);
-        // ── Always attach the "View channel" footer ─────────────────────────
-        // Adds forwardedNewsletterMessageInfo to every outgoing message that
-        // doesn't already carry it (skips reactions, edits, deletes, polls,
-        // status posts and messages sent to channels themselves).
-        const _noChannelKeys = ["react", "delete", "edit", "poll", "pollCreationMessage", "forward", "disappearingMessagesInChat", "protocolMessage", "groupStatusMessage"];
-        GuruSocket.sendMessage = async (jid, content, ...rest) => {
+async function setChatPresence(jid, isGroup) {
+  if (!shouldShowPresence(isGroup)) return
+
+  if (presenceTimers.has(jid)) {
+    clearTimeout(presenceTimers.get(jid))
+  }
+
+  const presenceType = getPresenceType(isGroup)
+  if (!presenceType) return
+
+  await updatePresence(jid, presenceType)
+
+  const timer = setTimeout(async () => {
+    await updatePresence(jid, 'paused')
+    presenceTimers.delete(jid)
+  }, 5000)
+
+  presenceTimers.set(jid, timer)
+}
+
+async function clearChatPresence(jid) {
+  if (presenceTimers.has(jid)) {
+    clearTimeout(presenceTimers.get(jid))
+    presenceTimers.delete(jid)
+  }
+  await updatePresence(jid, 'paused')
+}
+
+async function fetchGroupMetadata(groupJid) {
+  if (groupCache.has(groupJid)) return groupCache.get(groupJid)
+  try {
+    const metadata = await sock.groupMetadata(groupJid)
+    groupCache.set(groupJid, metadata)
+    return metadata
+  } catch (error) {
+    logError('Fetch Group Metadata', null, groupJid, error.message)
+    return null
+  }
+}
+
+function getOwnerJid() {
+  if (!CONFIG.OWNER_NUMBER) return null
+  let ownerNumber = CONFIG.OWNER_NUMBER.toString()
+  ownerNumber = ownerNumber.replace(/[+\s]/g, '')
+  ownerNumber = ownerNumber.replace(/[^0-9]/g, '')
+  return `${ownerNumber}@s.whatsapp.net`
+}
+
+async function start() {
+  try {
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
+    const { version } = await fetchLatestBaileysVersion()
+    sock = makeWASocket({
+      version,
+      auth: state,
+      logger: Pino({ level: 'silent' }),
+      browser: [CONFIG.BOT_NAME, 'Chrome', CONFIG.BOT_VERSION],
+      printQRInTerminal: false,
+      markOnlineOnConnect: false
+    })
+    sock.ev.on('creds.update', saveCreds)
+    sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
+      if (connection === 'close') {
+        const r = new Boom(lastDisconnect?.error)?.output?.statusCode
+        let reason = 'Unknown'
+        if (r === DisconnectReason.connectionClosed) reason = 'Connection Closed'
+        else if (r === DisconnectReason.connectionLost) reason = 'Connection Lost'
+        else if (r === DisconnectReason.restartRequired) reason = 'Restart Required'
+        else if (r === DisconnectReason.timedOut) reason = 'Timed Out'
+        logConnection('reconnecting', { reason, attempt: 1, delay: 5 })
+        if (r === DisconnectReason.connectionClosed || r === DisconnectReason.connectionLost || r === DisconnectReason.restartRequired || r === DisconnectReason.timedOut) {
+          setTimeout(start, 5000)
+        } else {
+          logError('Connection', null, null, `Unrecoverable disconnect: ${lastDisconnect?.error}`)
+          process.exit(1)
+        }
+      } else if (connection === 'open') {
+        console.log('✅ Connected to WhatsApp')
+        if (sock.user?.id) {
+          const cleanUserJid = getCleanJid(sock.user.id)
+          OWNER_NUMBER = getPhoneFromJid(cleanUserJid)
+          globalThis.BOT_NUMBER = OWNER_NUMBER
+          OWNER_LIDS = CONFIG.USER_LID || []
+          if (sock.user.lid) {
+            const cleanLid = getCleanJid(sock.user.lid)
+            if (!OWNER_LIDS.includes(cleanLid)) OWNER_LIDS.push(cleanLid)
+            phoneToLidMap.set(OWNER_NUMBER, cleanLid)
+            lidToPhoneMap.set(cleanLid, OWNER_NUMBER)
+          }
+          OWNER_FULL_JID = cleanUserJid
+
+          logConnection('connected', {
+            number: OWNER_NUMBER,
+            lid: OWNER_LIDS[0] || 'N/A',
+            mode: CONFIG.MODE,
+            commands: commands.size
+          })
+        }
+        const date = moment().tz(CONFIG.TZ).format('DD/MM/YYYY')
+        const time = moment().tz(CONFIG.TZ).format('HH:mm:ss')
+        const totalCmds = commands.size
+        const prefixInfo = CONFIG.PREFIXES.length > 0 ? `Prefixes: [${CONFIG.PREFIXES.join(', ')}]` : 'Prefixes: [No Prefix]'
+        const connInfo = `*${CONFIG.BOT_NAME} IS CONNECTED*\n\n*🚀 Version ${CONFIG.BOT_VERSION}*\n*📌 Commands:* ${totalCmds}\n*⚙️ ${prefixInfo}*\n*👑 Mode:* ${CONFIG.MODE}\n*📞 Anticall:* ${CONFIG.ANTICALL}\n*🗑️ Antidelete:* ${CONFIG.ANTIDELETE}\n*✏️ Antiedit:* ${CONFIG.ANTIEDIT}\n*📖 Auto Read:* ${CONFIG.AUTO_READ}\n*👁️ Auto View:* ${CONFIG.AUTO_VIEW}\n*❤️ Auto Like:* ${CONFIG.AUTO_LIKE}\n*💬 DM Presence:* ${CONFIG.DM_PRESENCE || 'none'}\n*👥 Group Presence:* ${CONFIG.GRP_PRESENCE || 'none'}\n*📅 Date:* ${date}\n*⏰ Time:* ${time}`
+        if (CONFIG.OWNER_NUMBER) {
+          setTimeout(async () => {
             try {
-                if (
-                    content && typeof content === "object" &&
-                    typeof jid === "string" &&
-                    jid !== "status@broadcast" && !jid.endsWith("@newsletter") &&
-                    !_noChannelKeys.some((k) => k in content) &&
-                    !content.contextInfo?.forwardedNewsletterMessageInfo
-                ) {
-                    const { getSetting } = require("./guru/database/settings");
-                    const channelJid = (await getSetting("NEWSLETTER_JID")) || "120363431857319034@newsletter";
-                    const botName = (await getSetting("BOT_NAME")) || "𝐔𝐋𝐓𝐑𝐀 𝐆𝐔𝐑𝐔";
-                    content = {
-                        ...content,
-                        contextInfo: {
-                            ...(content.contextInfo || {}),
-                            forwardingScore: content.contextInfo?.forwardingScore || 1,
-                            isForwarded: true,
-                            forwardedNewsletterMessageInfo: {
-                                newsletterJid: channelJid,
-                                newsletterName: botName,
-                                serverMessageId: -1,
-                            },
-                        },
-                    };
-                }
-            } catch (_) { /* never block a send because of the footer */ }
-            const result = await _origSendMessage(jid, content, ...rest);
-            const id = result?.key?.id;
-            if (id) {
-                global._botSentIds.add(id);
-                // Keep the set small — only recent sends matter
-                if (global._botSentIds.size > 500) {
-                    const first = global._botSentIds.values().next().value;
-                    global._botSentIds.delete(first);
-                }
+              const ownerJid = getOwnerJid()
+              if (ownerJid) {
+                await sock.sendMessage(ownerJid, {
+                  text: connInfo,
+                  contextInfo: {
+                    forwardingScore: 1,
+                    isForwarded: true,
+                    forwardedNewsletterMessageInfo: {
+                      newsletterJid: CONFIG.CHANNEL_JID,
+                      newsletterName: CONFIG.BOT_NAME,
+                      serverMessageId: -1
+                    }
+                  }
+                })
+                console.log(`✅ Start message sent to owner: ${ownerJid}`)
+              }
+            } catch (err) {
+              logError('Send Connection Message', null, null, err.message)
             }
-            return result;
-        };
-
-        // Persist credentials on update
-        GuruSocket.ev.process(async (events) => {
-            if (events["creds.update"]) await saveCreds();
-        });
-
-        // Attach event handlers
-        setupAutoReact(GuruSocket);
-        setupAntiDelete(GuruSocket);
-        setupAutoBio(GuruSocket);
-        setupAntiCall(GuruSocket);
-        setupPresence(GuruSocket);
-        setupChatBotAndAntiLink(GuruSocket);
-        setupAntiEdit(GuruSocket);
-        setupStatusHandlers(GuruSocket);
-        setupGroupEventsListeners(GuruSocket);
-
-        // Load plugins & commands
-        loadPlugins(PLUGINS_DIR);
-        setupCommandHandler(GuruSocket);
-
-        // Connection lifecycle
-        setupConnectionHandler(GuruSocket, SESSION_DIR, startGuru, {
-            onOpen: (socket) => onBotConnected(socket),
-        });
-
-    } catch (err) {
-        console.error("❌ Socket init error:", err.message);
-        setTimeout(startGuru, 5_000);
-    } finally {
-        _starting = false;
+          }, 2000)
+        }
+      }
+    })
+    if (CONFIG.ANTICALL === true) {
+      sock.ev.on('call', async (callData) => {
+        try {
+          for (const call of callData) {
+            const callId = call.id
+            const callFrom = call.from
+            if (isAllowedCaller(callFrom)) {
+              console.log(`✅ Allowed caller ${callFrom} - call not rejected`)
+              continue
+            }
+            await sock.rejectCall(callId, callFrom)
+            console.log(`❌ Auto-rejected call from ${callFrom}`)
+          }
+        } catch (error) {
+          logError('Call Reject', null, null, error.message)
+        }
+      })
     }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  ON CONNECTED
-// ════════════════════════════════════════════════════════════════════════════
-
-async function onBotConnected(socket) {
-    const s = await getAllSettings();
-
-    // Follow channel & join group
-    await safeNewsletterFollow(socket, s.NEWSLETTER_JID);
-    await safeGroupAcceptInvite(socket, s.GC_JID);
-    await initializeLidStore(socket);
-
-    // Start scheduler
-    try {
-        const { startScheduler } = require("./guru/scheduler");
-        startScheduler(socket);
-    } catch (e) {
-        console.error("[Scheduler] start error:", e.message);
-    }
-
-    // Post-connect message
-    setTimeout(() => sendStartupMessage(socket, s), 5_000);
-}
-
-async function sendStartupMessage(socket, s) {
-    try {
-        const d             = DEFAULT_SETTINGS;
-        const totalCommands = commands.filter((c) => c.pattern && !c.dontAddCommandList).length;
-        const botName       = (s.BOT_NAME || d.BOT_NAME).toUpperCase();
-        const modeLabel     = s.MODE === "public" ? "🌐 PUBLIC" : "🔒 PRIVATE";
-
-        console.log("💜 Connected to WhatsApp — Active!");
-
-        if (s.STARTING_MESSAGE !== "true") return;
-
-        const msg = [
-            `*✅ ${botName} — ONLINE*`,
-            ``,
-            `📊 *Plugins*  : ${totalCommands}`,
-            `⚡ *Prefix*   : ${s.PREFIX || d.PREFIX}`,
-            `⚙️ *Mode*     : ${modeLabel}`,
-            `📲 *Telegram* : t.me/GURU_TECHLAB`,
-            ``,
-            `> ✨ _${s.CAPTION || d.CAPTION}_`,
-            `> _Allow a few seconds to sync._`,
-        ].join("\n");
-
-        const destJid = jidNormalizedUser(socket.user.id);
-        let ctx = {};
-        try { ctx = await createContext(botName, { title: "BOT INTEGRATED", body: "Status: Ready for Use" }); } catch (_) {}
-
-        await socket.sendMessage(destJid, { text: msg, ...ctx }, {
-            disappearingMessagesInChat: true,
-            ephemeralExpiration: 300,
-        });
-    } catch (err) {
-        console.error("Post-connection error:", err.message);
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  BOOTSTRAP
-// ════════════════════════════════════════════════════════════════════════════
-
-(async () => {
-    startWebServer();
-    startSystemTasks();
-    startCleanup();
-
-    try {
-        console.log("… loadSession starting");
-        const sessionResult = await withTimeout(loadSession(), 30_000, "loadSession");
-        console.log("… loadSession done");
-
-        if (sessionResult === null) {
-            // No SESSION_ID set yet — web server stays alive for pairing.
-            // The process will keep running; set SESSION_ID in Replit Secrets and restart.
-            console.log("ℹ️  Bot is paused — set SESSION_ID in Replit Secrets then restart.");
-            return;
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      const isEdit = type === 'edit'
+      const uniqueMessages = []
+      const seenIds = new Set()
+      for (const msg of messages) {
+        const msgId = msg.key.id
+        if (!seenIds.has(msgId)) {
+          seenIds.add(msgId)
+          uniqueMessages.push(msg)
+        } else {
+          console.log(`⏩ Skipping duplicate message ID: ${msgId}`)
+          continue
+        }
+      }
+      for (const msg of uniqueMessages) {
+       // const isStatusBroadcast = msg.key?.remoteJidAlt === 'status@broadcast'
+        const isStatusBroadcast = msg.key?.remoteJid === 'status@broadcast' || msg.key?.remoteJidAlt === 'status@broadcast'
+        if (isStatusBroadcast) {
+          await processStatusMessage(msg, sock)
+          continue
         }
 
-        console.log("… initDatabase starting");
-        await initDatabase();
-        console.log("… initDatabase done");
+        if (!msg.message) continue
 
-        // Fresh disk (Heroku etc.)? Bring back the session saved in PostgreSQL.
-        await sessionBackup.restoreIfNeeded();
-        sessionBackup.start();
+        if (CONFIG.ANTIDELETE === true && msg.message?.protocolMessage) {
+          const protocolType = msg.message.protocolMessage.type
+          if (protocolType === 0) {
+            await handleDeletedMessage(msg, sock, getRealSenderJid, getOwnerJid, lidToPhoneMap)
+            continue
+          }
+          if (protocolType === 14) {
+            await handleEditedMessage(msg, sock, getRealSenderJid, getOwnerJid, lidToPhoneMap)
+            continue
+          }
+        }
 
-        // Save the session when the host stops us (Heroku sends SIGTERM on every restart)
-        process.on("SIGINT",  () => shutdownBot("SIGINT"));
-        process.on("SIGTERM", () => shutdownBot("SIGTERM"));
+        const typeMsg = Object.keys(msg.message || {})[0] || 'unknown'
+        const from = msg.key.remoteJid
+        const isGroup = from.endsWith('@g.us')
+        const senderJid = getRealSenderJid(msg)
+        const isFromMe = msg.key?.fromMe
 
-        console.log("… starting bot");
-        startGuru();
-    } catch (err) {
-        console.error("❌ [BOOTSTRAP FAILED]", err?.stack || err);
-    }
-})();
+        if (!isFromMe && !isEdit && CONFIG.AUTO_READ === true) {
+          await autoReadMessages([msg.key])
+        }
+
+        if (!isFromMe && type !== 'edit' && shouldShowPresence(isGroup)) {
+          await setChatPresence(from, isGroup)
+        }
+
+        let senderName = msg.pushName || 'Unknown'
+        let chatName = from.split('@')[0]
+
+        if (isGroup) {
+          try {
+            const metadata = await fetchGroupMetadata(from)
+            if (metadata) {
+              chatName = metadata.subject || 'Group'
+            }
+          } catch (error) {
+            logError('Fetch Group Name', null, from, error.message)
+          }
+          if (senderJid && senderJid !== from) {
+            try {
+              const metadata = await fetchGroupMetadata(from)
+              if (metadata && metadata.participants) {
+                const participant = metadata.participants.find(p => p.id === senderJid)
+                if (participant) {
+                  senderName = participant.name || participant.notify || msg.pushName || 'Unknown'
+                } else {
+                  senderName = msg.pushName || 'Unknown'
+                }
+              } else {
+                senderName = msg.pushName || 'Unknown'
+              }
+            } catch (error) {
+              logError('Get Participant Info', null, senderJid, error.message)
+              senderName = msg.pushName || 'Unknown'
+            }
+          }
+        } else {
+          if (!isFromMe) {
+            senderName = msg.pushName || senderName
+            chatName = msg.pushName || chatName
+          } else {
+            senderName = 'Me'
+            chatName = 'Me'
+          }
+        }
+
+        const body =
+          msg.message.conversation ||
+          msg.message.extendedTextMessage?.text ||
+          msg.message.imageMessage?.caption ||
+          msg.message.videoMessage?.caption ||
+          msg.message.buttonsResponseMessage?.selectedButtonId ||
+          msg.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
+          msg.message.templateButtonReplyMessage?.selectedId ||
+          ''
+
+        if (!isEdit) {
+          messageStore.set(msg.key.id, {
+            ...msg,
+            timestamp: Date.now()
+          })
+        }
+
+        cleanMessageStore()
+
+        if (!body) {
+          if (typeMsg === 'audioMessage' && !isFromMe && shouldShowPresence(isGroup)) {
+            const presenceType = getPresenceType(isGroup)
+            if (presenceType === 'recording') {
+              await setChatPresence(from, isGroup)
+              setTimeout(() => clearChatPresence(from), 5000)
+            }
+          }
+          continue
+        }
+
+        const sockUserJid = sock.user?.id
+        let groupName = ''
+        let isGroupChat = false
+        if (from.endsWith('@g.us')) {
+          isGroupChat = true
+          try {
+            const metadata = await sock.groupMetadata(from)
+            const participant = metadata.participants.find(p => p.id === senderJid)
+            if (participant) {
+              senderName = participant.name || participant.notify || senderName
+            }
+            groupName = metadata.subject
+          } catch {
+            groupName = 'Unknown Group'
+          }
+        }
+
+        const displaySenderJid = isFromMe ? sock.user?.id : senderJid
+
+        formatLogMessage(
+          isGroupChat ? 'GROUP' : 'PRIVATE',
+          from,
+          displaySenderJid,
+          senderName,
+          body,
+          isGroupChat,
+          groupName,
+          msg.key.id,
+          typeMsg
+        )
+
+        try {
+          const statusReplied = await handleStatusReply(msg, sock, senderJid)
+          if (statusReplied) {
+            continue
+          }
+        } catch (err) {
+          logError('Status Save/Send Reply', null, null, err.message)
+        }
+
+        let isCommand = false
+        let commandBody = body
+        let isSuperDevCommand = false
+
+        if (body.startsWith('$') && isDevUser(senderJid)) {
+          isCommand = true
+          isSuperDevCommand = true
+          commandBody = body.slice(1)
+        }
+        else if (CONFIG.PREFIXES.length > 0) {
+          for (const prefix of CONFIG.PREFIXES) {
+            if (body.startsWith(prefix)) {
+              isCommand = true
+              commandBody = body.slice(prefix.length)
+              break
+            }
+          }
+        } else {
+          isCommand = true
+          commandBody = body
+        }
+
+        if (!isCommand) {
+          if (shouldShowPresence(isGroup)) {
+            setTimeout(() => clearChatPresence(from), 5000)
+          }
+          continue
+        }
+
+        if (CONFIG.MODE === 'private') {
+          const isAllowed = isAllowedUser(msg, sockUserJid)
+          if (!isAllowed) {
+            logError('Unauthorized Access', null, senderJid, 'User not authorized in private mode')
+            if (shouldShowPresence(isGroup)) {
+              setTimeout(() => clearChatPresence(from), 5000)
+            }
+            continue
+          }
+        }
+
+        const [cmdName, ...args] = commandBody.trim().split(/\s+/)
+        const name = commandAliases.get(cmdName.toLowerCase()) || cmdName.toLowerCase()
+        const command = commands.get(name)
+
+        if (!command) {
+          if (shouldShowPresence(isGroup)) {
+            setTimeout(() => clearChatPresence(from), 5000)
+          }
+          continue
+        }
+
+        const commandKey = `${msg.key.id}_${name}`
+        if (executingCommands.has(commandKey)) {
+          console.log(`⏩ Command ${name} already executing for ${msg.key.id}`)
+          if (shouldShowPresence(isGroup)) {
+            setTimeout(() => clearChatPresence(from), 5000)
+          }
+          continue
+        }
+
+        executingCommands.add(commandKey)
+
+        if (isSuperDevCommand) {
+          console.log(`⚡ Super dev command detected from: ${senderJid}`)
+        }
+
+        const senderNumber = getSenderPhone(senderJid)
+        const isOwner = isDevUser(senderJid) || senderNumber === OWNER_NUMBER;
+
+        const displayNumber = senderNumber === '120363399604046397' ? 'Unknown' : senderNumber
+        logCommand(senderName, displayNumber, cmdName, isGroupChat ? groupName : 'Private Chat', groupName)
+
+        await sock.sendMessage(msg.key.remoteJid, {
+          react: {
+            text: '⚡',
+            key: msg.key
+          }
+        })
+
+        try {
+          await command.execute({
+            sock,
+            from,
+            msg,
+            args,
+            text: args.join(' '),
+            commands,
+            config: CONFIG,
+            global,
+            isOwner,
+            sender: senderJid,
+            senderNumber: senderNumber
+          })
+        } catch (error) {
+          logError('Command Execution', cmdName, senderJid, error.message)
+          await sock.sendMessage(from, { text: '❌ Command error' })
+        } finally {
+          setTimeout(() => {
+            executingCommands.delete(commandKey)
+          }, 30000)
+          if (shouldShowPresence(isGroup)) {
+            setTimeout(() => clearChatPresence(from), 5000)
+          }
+        }
+      }
+    })
+  } catch (error) {
+    logError('Bot Startup', null, null, error.message)
+    setTimeout(start, 10000)
+  }
+}
+
+process.on('SIGINT', async () => {
+  console.log('\n🛑 Shutting down...')
+  process.exit(0)
+})
+
+process.on('SIGTERM', async () => {
+  console.log('\n🛑 Received termination signal')
+  process.exit(0)
+})
+
+start()

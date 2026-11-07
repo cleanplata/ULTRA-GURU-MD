@@ -1,66 +1,31 @@
-[![ULTRA GURU Banner](https://res.cloudinary.com/dqxlb29uz/image/upload/v1780267810/bwm_uploads/media-1780267810008.jpg)](https://github.com/GuruhTech/ULTRA-GURU)
+# ULTRA GURU WhatsApp Bot
 
-# 🎖️ ULTRA GURU MD 🎖️
+This repository contains the bot code from the supplied Flash-Md-V3 archive, adapted for the existing `cleanplata/ULTRA-GURU-MD` deployment. Runtime defaults retain the current bot name, owner name, profile image, WhatsApp channel JID/link, and GitHub repository. Existing Heroku config vars remain in place when the source is updated.
 
-[![](https://img.shields.io/badge/AUTHOR-GURUHTECH-00b8ff?style=for-the-badge&logo=github)](https://github.com/GuruhTech)
-[![](https://img.shields.io/github/stars/GuruhTech/ULTRA-GURU?style=social)](https://github.com/GuruhTech/ULTRA-GURU/stargazers/)
-[![](https://img.shields.io/github/forks/GuruhTech/ULTRA-GURU?style=social)](https://github.com/GuruhTech/ULTRA-GURU/network/members)
-![Profile Views](https://komarev.com/ghpvc/?username=GuruhTech&label=PROFILE+VIEWS&color=00b8ff&style=for-the-badge)
+## WhatsApp session and LID
 
----
+A WhatsApp session credential is required to connect the bot. Set **one** of `SESSION` or `SESSION_ID` in Heroku Config Vars. The bot accepts both formats:
 
-# 🛠️ QUICK SETUP
+- `SESSION`: the Flash-Md-V3 format, base64-encoded `creds.json`.
+- `SESSION_ID`: the existing ULTRA GURU format, `GURU~` followed by base64-encoded gzip-compressed `creds.json`. For compatibility, `SESSION_ID` also accepts the plain base64 format.
 
-## 1. FORK THE REPOSITORY
+The bot converts either accepted value to the local Baileys credential file at startup. A session ID is a secret login credential: keep it in Heroku Config Vars, never paste it into source code or commit it to GitHub.
 
-[![Fork Repo](https://img.shields.io/badge/FORK%20REPO-1E90FF?style=for-the-badge&logo=github&logoColor=white)](https://github.com/GuruhTech/ULTRA-GURU/fork)
+`USER_LID` is **optional**. A LID is WhatsApp's account identifier used to resolve messages in newer WhatsApp addressing modes; it is not a login credential and is not needed to create the WhatsApp connection. When the bot connects, it learns the linked account's LID automatically. `OWNER_NUMBER` is also optional if commands are run from the linked bot account; set it only if you want to identify a separate owner contact. Do not commit a real phone number or LID to the repository.
 
-## 2. DOWNLOAD ZIP (Panel Users)
+## Heroku
 
-[![Download ZIP](https://img.shields.io/badge/DOWNLOAD%20ZIP-4169E1?style=for-the-badge&logo=github&logoColor=white)](https://github.com/GuruhTech/ULTRA-GURU/archive/refs/heads/main.zip)
+The included `Procfile` starts the bot with `node index.js`. Existing Heroku config vars persist when Heroku deploys a new commit. Check that either `SESSION_ID` or `SESSION` is configured before restarting the dyno. Useful optional vars include `OWNER_NAME`, `BOT_NAME`, `BOT_PIC`, `CHANNEL_JID`, and `CHANNEL_URL`; defaults are provided in `config.js` and `app.json`.
 
-## 3. GET SESSION ID
+The root route (`/`) confirms the Node process is responding. `/health` reports the WhatsApp connection state (`503` while disconnected, `200` after it connects). In Heroku logs, look for `[AUTH] Session format accepted: ...` followed by `Connected to WhatsApp` to confirm session decoding and connection. A deployment can succeed while WhatsApp authentication still fails, so both log messages matter.
 
-Choose your preferred method:
+## Local development
 
-[![Pair Code](https://img.shields.io/badge/PAIR%20CODE-00b8ff?style=for-the-badge&logo=link&logoColor=white)](https://ultra-guru-pair-1.onrender.com/pair)
-[![QR Code](https://img.shields.io/badge/SCAN%20QR%20CODE-1E90FF?style=for-the-badge&logo=qrcode&logoColor=white)](https://ultra-guru-pair-1.onrender.com/qr)
+Use Node.js 20 or newer. Copy `.env-sample` to `.env`, set a valid session in one supported format, then run:
 
----
-
-# 🚀 DEPLOYMENT
-
-[![DEPLOY ULTRA NOW](https://img.shields.io/badge/DEPLOY%20ULTRA%20NOW-00b8ff?style=for-the-badge&logo=rocket&logoColor=white)](https://fork.gurutech.top)
-
-### ⚡ One-click deployment
-
-Deploy **ULTRA GURU MD** instantly using the official deployment portal. Simply click the button above, verify your repository, and complete the deployment process.
-
----
-
-## ☁️ KataBump
-
-[![Deploy on KataBump](https://img.shields.io/badge/DEPLOY%20ON%20KATABUMP-4169E1?style=for-the-badge&logo=rocket&logoColor=white)](https://dashboard.katabump.com/auth/login#f98658)
-
----
-
-## 🐧 VPS / Termux
-
-```bash
-git clone https://github.com/GuruhTech/ULTRA-GURU.git
-cd ULTRA-GURU
+```sh
 npm install
 npm start
 ```
 
----
-
-# 🌐 CONNECT WITH US
-
-[![Telegram](https://img.shields.io/badge/TELEGRAM-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/GURU_TECHLAB)
-
-[![WhatsApp Channel](https://img.shields.io/badge/WHATSAPP%20CHANNEL-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://whatsapp.com/channel/0029VbDh88NCMY0Fartkxm1g)
-
----
-
-### ⭐ If you like **ULTRA GURU MD**, don't forget to star the repository and share it with others!
+`.env`, auth files, and generated logs are excluded by `.gitignore`.
