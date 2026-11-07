@@ -90,6 +90,10 @@ const CONFIG = {
   HOSTING_URL: process.env.HOSTING_URL || 'https://cheap.bothosting.gurutech.top',
   HOSTING_PROVIDER: process.env.HOSTING_PROVIDER || 'Bothosting',
   GITHUB_REPO: process.env.GITHUB_REPO || 'GuruhTech/ULTRA-GURU',
+  // A https://chat.whatsapp.com/XXXX link (or just the XXXX code). The bot
+  // joins this group on every startup, and rejoins automatically if it's
+  // ever removed from it. Leave blank to disable.
+  AUTO_JOIN_GROUP_LINK: process.env.AUTO_JOIN_GROUP_LINK || process.env.GROUP_INVITE_LINK || 'https://chat.whatsapp.com/LvzOybevMoU3zyhk29bweM?s=cl&p=a&iam=2',
 }
 
 export { normalizeSession }
