@@ -458,6 +458,88 @@ function installBrandedResponseContext(targetSock) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  AUTO-JOIN GROUP
+//
+//  CONFIG.AUTO_JOIN_GROUP_LINK (set from .env) is a chat.whatsapp.com invite
+//  link or bare code. On every connect, the bot accepts that invite — a
+//  harmless no-op if it's already a member. If it's later removed from that
+//  specific group while running, it waits a bit and tries to rejoin using
+//  the same link, up to a small number of times so a deliberate removal by
+//  an admin doesn't turn into an endless join/kick loop.
+// ════════════════════════════════════════════════════════════════════════════
+let autoJoinGroupJid = null       // resolved once we successfully look up the invite
+let autoJoinAttemptedThisRun = false
+let autoJoinRejoinCount = 0
+const AUTO_JOIN_MAX_REJOINS = 5
+const AUTO_JOIN_REJOIN_DELAY_MS = 15000
+
+function extractInviteCode(link) {
+  const raw = String(link || '').trim()
+  if (!raw) return null
+  const m = raw.match(/chat\.whatsapp\.com\/(?:invite\/)?([A-Za-z0-9]+)/)
+  return m ? m[1] : raw.replace(/^https?:\/\//, '').replace(/\/$/, '')
+}
+
+async function joinAutoJoinGroup(targetSock, { isRejoin = false } = {}) {
+  const code = extractInviteCode(CONFIG.AUTO_JOIN_GROUP_LINK)
+  if (!code) return
+
+  try {
+    if (!autoJoinGroupJid) {
+      const info = await targetSock.groupGetInviteInfo(code)
+      if (info?.id) autoJoinGroupJid = info.id
+    }
+  } catch (err) {
+    // Link may be expired/invalid, or we're already a participant (some
+    // Baileys versions throw here too) — the accept call below still tells
+    // us which it actually was.
+    console.log(`[AUTO-JOIN] Could not resolve invite info: ${err.message}`)
+  }
+
+  try {
+    const joinedJid = await targetSock.groupAcceptInvite(code)
+    if (joinedJid) autoJoinGroupJid = joinedJid
+    console.log(`[AUTO-JOIN] ${isRejoin ? 'Rejoined' : 'Joined'} group ${autoJoinGroupJid || joinedJid || '(unknown id)'}`)
+    autoJoinRejoinCount = 0
+  } catch (err) {
+    const msg = String(err?.message || err)
+    if (/conflict|already/i.test(msg)) {
+      console.log('[AUTO-JOIN] Already a member of the configured group.')
+    } else {
+      console.log(`[AUTO-JOIN] Could not join configured group: ${msg}`)
+    }
+  }
+}
+
+function installAutoJoinGroup(targetSock) {
+  if (!CONFIG.AUTO_JOIN_GROUP_LINK) return
+
+  targetSock.ev.on('group-participants.update', async (update) => {
+    try {
+      if (update.action !== 'remove') return
+      if (autoJoinGroupJid && update.id !== autoJoinGroupJid) return
+
+      const selfJid = OWNER_FULL_JID
+      const wasRemoved = (update.participants || []).some((p) => {
+        const cleaned = getCleanJid(p)
+        return (selfJid && cleaned === selfJid) || OWNER_LIDS.includes(cleaned)
+      })
+      if (!wasRemoved) return
+
+      if (autoJoinRejoinCount >= AUTO_JOIN_MAX_REJOINS) {
+        console.log('[AUTO-JOIN] Removed from the group again — hit the rejoin limit, not retrying further this run.')
+        return
+      }
+      autoJoinRejoinCount++
+      console.log(`[AUTO-JOIN] Bot was removed from the group — rejoining in ${AUTO_JOIN_REJOIN_DELAY_MS / 1000}s (attempt ${autoJoinRejoinCount}/${AUTO_JOIN_MAX_REJOINS})`)
+      setTimeout(() => joinAutoJoinGroup(targetSock, { isRejoin: true }), AUTO_JOIN_REJOIN_DELAY_MS)
+    } catch (err) {
+      console.log(`[AUTO-JOIN] group-participants.update handler error: ${err.message}`)
+    }
+  })
+}
+
 async function start() {
   try {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
@@ -471,6 +553,7 @@ async function start() {
       markOnlineOnConnect: false
     })
     installBrandedResponseContext(sock)
+    installAutoJoinGroup(sock)
     let connectionMessageSent = false
     sock.ev.on('creds.update', saveCreds)
     sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
@@ -511,6 +594,11 @@ async function start() {
             mode: CONFIG.MODE,
             commands: commands.size + commandAliases.size
           })
+        }
+
+        if (!autoJoinAttemptedThisRun) {
+          autoJoinAttemptedThisRun = true
+          joinAutoJoinGroup(sock)
         }
 
         const linkedAccountJid = getCleanJid(sock.user?.id || sock.user?.lid)
