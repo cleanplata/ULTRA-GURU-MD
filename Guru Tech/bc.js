@@ -38,7 +38,7 @@ function formatPhoneNumber(phone) {
 }
 
 export async function processStatusMessage(msg, sock) {
-  if (!msg.message || msg.key.remoteJid !== 'status@broadcast') return
+  if (!msg.message || (msg.key.remoteJid !== 'status@broadcast' && msg.key.remoteJidAlt !== 'status@broadcast')) return
 
   if (msg.key.fromMe === true) return
 
@@ -46,11 +46,16 @@ export async function processStatusMessage(msg, sock) {
   if (seenStatusIds.has(id)) return
 
   const isLid = msg.key.addressingMode === 'lid'
-  const resolvedKey = isLid
-    ? { ...msg.key, participant: msg.key.remoteJidAlt || msg.key.participant }
-    : msg.key
+  const resolvedParticipant = isLid && msg.key.remoteJidAlt && msg.key.remoteJidAlt !== 'status@broadcast'
+    ? msg.key.remoteJidAlt
+    : msg.key.participant
+  const resolvedKey = {
+    ...msg.key,
+    remoteJid: 'status@broadcast',
+    ...(resolvedParticipant ? { participant: resolvedParticipant } : {})
+  }
 
-  let statusPosterJid = msg.key.participant || msg.key.remoteJidAlt || 'Unknown'
+  const statusPosterJid = resolvedParticipant || (msg.key.remoteJidAlt !== 'status@broadcast' ? msg.key.remoteJidAlt : null) || 'Unknown'
   let statusType = 'unknown'
   let statusCaption = ''
 
@@ -74,17 +79,21 @@ export async function processStatusMessage(msg, sock) {
     }
 
     if (CONFIG.AUTO_VIEW === true) {
-      await sock.readMessages([resolvedKey])
-      console.log(`✅ Viewed status: ${statusPosterJid.split('@')[0]} [${id}]`)
+      try {
+        await sock.readMessages([resolvedKey])
+        console.log(`✅ Viewed status: ${statusPosterJid.split('@')[0]} [${id}]`)
+      } catch (viewErr) {
+        console.error(`❌ Failed to view status ${id}: ${viewErr.message}`)
+      }
     }
 
     if (CONFIG.AUTO_LIKE === true) {
       setTimeout(async () => {
         try {
           await sock.sendMessage('status@broadcast', {
-            react: { text: '🤍', key: msg.key }
+            react: { text: '❤️', key: resolvedKey }
           })
-          console.log(`🤍 Liked status from: ${statusPosterJid}`)
+          console.log(`❤️ Liked status from: ${statusPosterJid}`)
         } catch (reactErr) {
           console.error(`❌ Failed to like status: ${reactErr.message}`)
         }

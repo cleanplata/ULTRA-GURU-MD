@@ -188,7 +188,9 @@ export async function handleMenuCategoryReply({ sock, from, sender, msg, body })
         return true;
     }
 
-    await sendMenuVisual(sock, from, renderCategoryCommands({ ...resolved, ...session }), msg);
+    await sock.sendMessage(from, {
+        text: renderCategoryCommands({ ...resolved, ...session })
+    }, { quoted: msg });
     return true;
 }
 
@@ -222,7 +224,9 @@ export const commands = [
                 if (selector) {
                     const selected = resolveCategorySelection(selector, categories);
                     if (selected) {
-                        return sendMenuVisual(sock, from, renderCategoryCommands({ ...selected, prefix, botName, ownerName }), msg);
+                        return sock.sendMessage(from, {
+                            text: renderCategoryCommands({ ...selected, prefix, botName, ownerName })
+                        }, { quoted: msg });
                     }
                     return sock.sendMessage(from, {
                         text: `Choose a category with \`${prefix || '.'}menu 1\`–\`${prefix || '.'}menu ${categories.length}\`, or run \`${prefix || '.'}menu\` to see the index.`
