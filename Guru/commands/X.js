@@ -7,7 +7,7 @@ export const commands = [
   {
     name: 'twitter',
     aliases: ['tw', 'x', 'twdl', 'xdl'],
-    description: 'Download videos from Twitter/X using Nayan API.',
+    description: 'Download videos from Twitter/X using the configured media API.',
     category: 'Download',
     execute: async ({ sock, from, text, msg, config }) => {
       if (!text) {
@@ -37,7 +37,7 @@ export const commands = [
         const apiUrl = `${API_CONFIG.nayanApi.twitter}?url=${encodeURIComponent(text)}`;
         console.log('[TWITTER] API URL:', apiUrl);
 
-        console.log('[TWITTER] Sending request to Nayan API...');
+        console.log('[TWITTER] Sending request to the configured media API...');
         const response = await axios.get(apiUrl, { timeout: API_CONFIG.nayanApi.timeout });
 
         console.log('[TWITTER] Response status:', response.status);
@@ -85,7 +85,7 @@ export const commands = [
         await sock.sendMessage(from, {
           video: { url: videoUrl },
           caption: caption,
-          thumbnail: thumbnail ? { url: thumbnail } : null,
+          thumbnail: thumbnail ? { url: thumbnail } : (config?.BOT_PIC ? { url: config.BOT_PIC } : null),
           contextInfo: {
             forwardingScore: 1,
             isForwarded: true,

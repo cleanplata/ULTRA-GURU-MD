@@ -201,7 +201,8 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
     const channel = safeDisplay(video.author?.name, 'Unknown')
     const duration = safeDisplay(video.timestamp, 'N/A')
     const thumbnail = video.thumbnail ||
-      (video.videoId ? `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg` : '')
+      (video.videoId ? `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg` : '') ||
+      config?.BOT_PIC || ''
     const previewCaption = [
       `> ╭─⌈ 🔥 *${botName}* · _MUSIC PLAYER_ ⌋`,
       `> │ 🎵 *Title* › ${displayTitle}`,
@@ -265,12 +266,12 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
         })
         const miniApiPayload = miniApiResponse.data
         const miniAudioSource = miniApiPayload?.downloadLink
-        if (!miniAudioSource) throw new Error('Mini-bot audio API did not return a download link.')
+        if (!miniAudioSource) throw new Error('Secondary audio API did not return a download link.')
         payload = { ...payload, title: payload?.title || miniApiPayload?.title || video.title }
         audioResult = await loadAudio(miniAudioSource, httpGet, downloadTimeout)
       } catch (error) {
         miniApiError = error
-        console.warn('[PLAY] Mini-bot backup API unavailable:', safeErrorSummary(error))
+        console.warn('[PLAY] Secondary audio API unavailable:', safeErrorSummary(error))
       }
     }
 
@@ -285,7 +286,7 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
     } else {
       if (!ffmpegPath) throw hostedError || new Error('MP3 conversion is unavailable.')
       const providerError = miniApiError || hostedError
-      console.warn('[PLAY] Hosted/mini-bot APIs unavailable; trying local fallback:', safeErrorSummary(providerError) || 'no audio returned')
+      console.warn('[PLAY] Primary/secondary audio APIs unavailable; trying local fallback:', safeErrorSummary(providerError) || 'no audio returned')
       await sock.sendMessage(from, { text: '⏳ Trying the local audio fallback…' }, { quoted: msg })
       tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ultra-guru-play-'))
       localSourcePath = await downloadWithYtDlp(videoUrl, tempDir, dependencies)

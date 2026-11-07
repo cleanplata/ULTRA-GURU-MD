@@ -64,7 +64,7 @@ const botPic = process.env.BOT_PIC || DEFAULT_BOT_PIC
 const sessionInput = process.env.SESSION?.trim() || process.env.SESSION_ID?.trim() || ''
 
 const CONFIG = {
-  MODE: process.env.MODE || 'private',
+  MODE: (process.env.MODE || 'private').trim().toLowerCase(),
   PREFIXES: parsePrefixes(process.env.PREFIXES || '.'),
   PORT: parseInt(process.env.PORT, 10) || 3000,
   SESSION: normalizeSession(sessionInput),
@@ -87,6 +87,8 @@ const CONFIG = {
   MENU_IMAGES: parseMenuImages(process.env.MENU_IMAGES || '', botPic),
   CHANNEL_JID: process.env.CHANNEL_JID || process.env.NEWSLETTER_JID || DEFAULT_CHANNEL_JID,
   CHANNEL_URL: process.env.CHANNEL_URL || process.env.NEWSLETTER_URL || DEFAULT_CHANNEL_URL,
+  HOSTING_URL: process.env.HOSTING_URL || 'https://cheap.bothosting.gurutech.top',
+  HOSTING_PROVIDER: process.env.HOSTING_PROVIDER || 'Bothosting',
   GITHUB_REPO: process.env.GITHUB_REPO || 'cleanplata/ULTRA-GURU-MD',
 }
 

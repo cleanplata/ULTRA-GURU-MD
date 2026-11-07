@@ -10,15 +10,17 @@ This is the ULTRA GURU bot repository: [`cleanplata/ULTRA-GURU-MD`](https://gith
 
 ## Replies, connection status, and menu
 
-Text and media replies use the quoted contact-card style from the supplied mini-bot, branded as ULTRA GURU with the configured owner label. It does not claim Meta/WhatsApp verification or include another project's identity or a hard-coded phone number. Reactions, deletions, and standalone contact payloads are not changed by the reply wrapper.
+Text and media replies use a quoted contact-card style branded as ULTRA GURU with the configured owner label. It does not claim Meta/WhatsApp verification or include another project's identity or a hard-coded phone number. Reactions, deletions, and standalone contact payloads are not changed by the reply wrapper.
 
-After each successful WhatsApp connection (including after a restart), the bot sends a connected-status table to `OWNER_NUMBER` when configured. If `OWNER_NUMBER` is unset, it sends the table to the linked account's own chat.
+After each successful WhatsApp connection (including after a restart), the bot sends a short table with the bot name, connection status, current mode, detected host, `HOSTING_URL`, and a WhatsApp mention of the linked account. It sends the official WhatsApp Channel as a separate rich preview card using the bot image instead of printing the channel URL as plain text. The table is sent to `OWNER_NUMBER` when configured, otherwise to the linked account's own chat.
 
-The `.menu` command displays a numbered category index. Reply to that menu with a category number (for example, `1`) within 10 minutes to see its commands. Category replies work in the menu's chat, including the linked account's self-chat and group chats. You can also use `.menu <number>` or `.menu <category>` directly.
+The `.menu` command displays the configured bot image with a numbered category index; category results also use the bot image. The menu lists each canonical command and its working aliases as separate callable names. The repository currently defines 174 primary command names plus 156 aliases (328 unique invocation names); aliases dispatch to their existing handlers rather than representing separate implementations. Reply to the menu with a category number (for example, `1`) within 10 minutes, or use `.menu <number>` / `.menu <category>` directly.
+
+The owner-only `.mod public`, `.mod private`, and `.mod group only` commands switch modes immediately; `.mode` and `.setmode` are aliases. Group-only mode allows commands in groups and lets the owner use `.mod` in a private chat to change the mode back. A command change is runtime-only: after a dyno restart, set `MODE` in the host's Config Vars to retain the desired mode.
 
 ## Media commands
 
-- `.play <song name or YouTube link>` searches for the song, sends its thumbnail/details first, then sends a standard MP3 audio message (`ptt: false`) intended for native WhatsApp playback. It tries the configured downloader, then the mini-bot ZIP’s `ytDl3` API, then optional local yt-dlp; API calls are capped at 12 seconds and local extraction at 45 seconds. Final MP3s are limited to 15 MB. The two external APIs can be unavailable, and local extraction may be blocked by YouTube account verification. The optional yt-dlp wrapper needs Python 3.11+ when installed; see its [install requirements](https://github.com/microlinkhq/youtube-dl-exec/blob/main/scripts/preinstall.js).
+- `.play <song name or YouTube link>` searches for the song, sends its thumbnail/details first, then sends a standard MP3 audio message (`ptt: false`) intended for native WhatsApp playback. It tries the configured downloader, then the secondary `ytDl3` API, then optional local yt-dlp; API calls are capped at 12 seconds and local extraction at 45 seconds. Final MP3s are limited to 15 MB. The two external APIs can be unavailable, and local extraction may be blocked by YouTube account verification. The optional yt-dlp wrapper needs Python 3.11+ when installed; see its [install requirements](https://github.com/microlinkhq/youtube-dl-exec/blob/main/scripts/preinstall.js).
 - `.compress` on a video caption, or as a reply to a video, re-encodes it as WhatsApp-compatible H.264/AAC MP4. Source videos over 150 MB or results over 64 MB are rejected.
 - `.tomp3` (also `.toaudio`) converts a video to audio; `.trim`, `.sticker`, and `.toimg` provide additional media conversion tools.
 
@@ -35,7 +37,7 @@ The bot converts either accepted value to the local Baileys credential file at s
 
 ## Heroku
 
-The included `Procfile` starts the bot with `node "Guru Tech/index.js"`. Existing Heroku config vars persist when Heroku deploys a new commit. Check that either `SESSION_ID` or `SESSION` is configured before restarting the dyno. Useful optional vars include `OWNER_NAME`, `BOT_NAME`, `BOT_PIC`, `CHANNEL_JID`, `CHANNEL_URL`, and `GITHUB_REPO`; defaults are provided in `Guru Tech/config.js` and `app.json`.
+The included `Procfile` starts the bot with `node "Guru Tech/index.js"`. Existing Heroku config vars persist when Heroku deploys a new commit. Check that either `SESSION_ID` or `SESSION` is configured before restarting the dyno. Useful optional vars include `OWNER_NAME`, `BOT_NAME`, `BOT_PIC`, `CHANNEL_JID`, `CHANNEL_URL`, `HOSTING_URL`, `HOSTING_PROVIDER`, and `GITHUB_REPO`; defaults are provided in `Guru Tech/config.js` and `app.json`.
 
 The root route (`/`) confirms the Node process is responding. `/health` reports the WhatsApp connection state (`503` while disconnected, `200` after it connects). In Heroku logs, look for `[AUTH] Session format accepted: ...` followed by `Connected to WhatsApp` to confirm session decoding and connection. A deployment can succeed while WhatsApp authentication still fails, so both log messages matter.
 

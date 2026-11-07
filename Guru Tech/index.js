@@ -80,6 +80,14 @@ function getCleanJid(jid) {
   return jid
 }
 
+function getHostingProvider() {
+  if (process.env.DYNO || process.env.HEROKU_APP_NAME) return 'Heroku'
+  if (process.env.RENDER_SERVICE_ID || process.env.RENDER) return 'Render'
+  if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) return 'Railway'
+  if (process.env.KOYEB_SERVICE_ID) return 'Koyeb'
+  return CONFIG.HOSTING_PROVIDER || 'Unknown host'
+}
+
 function getRealSenderJid(msg) {
   const remoteJid = msg.key?.remoteJidAlt
   const participant = msg.key?.participantAlt
@@ -215,7 +223,8 @@ for (const file of fs.readdirSync(commandsDir).filter(f => f.endsWith('.js'))) {
 }
 
 function isAllowedUser(msg, sockUserJid) {
-  if (CONFIG.MODE === 'public') return true
+  const mode = String(CONFIG.MODE || 'private').toLowerCase()
+  if (mode === 'public' || mode === 'group') return true
 
   const senderJid = getRealSenderJid(msg)
   const cleanSenderJid = getCleanJid(senderJid)
@@ -466,53 +475,71 @@ async function start() {
             number: OWNER_NUMBER,
             lid: OWNER_LIDS[0] || 'N/A',
             mode: CONFIG.MODE,
-            commands: commands.size
+            commands: commands.size + commandAliases.size
           })
         }
 
-        const connectedAt = moment().tz(CONFIG.TZ)
-        const totalCmds = commands.size
-        const prefixInfo = CONFIG.PREFIXES.length > 0 ? CONFIG.PREFIXES.join(', ') : '(none)'
-        const state = value => value ? 'ON' : 'OFF'
-        const ownerName = CONFIG.OWNER_NAME || 'GuruTech'
-        const connInfo = [
-          `> ╭─⌈ 🔥 *${CONFIG.BOT_NAME}* · _v${CONFIG.BOT_VERSION}_ ⌋`,
-          '> │ ✅ *STATUS* › *CONNECTED*',
-          `> │ 👤 *Owner* › *${ownerName}*`,
-          `> │ 📋 *Commands* › *${totalCmds}*`,
-          `> │ 🔑 *Prefix* › *${prefixInfo}*`,
-          `> │ 🛠️ *Mode* › *${String(CONFIG.MODE || 'public').toUpperCase()}*`,
-          `> │ 📞 *Anti-call* › ${state(CONFIG.ANTICALL)}`,
-          `> │ 🗑️ *Anti-delete* › ${state(CONFIG.ANTIDELETE)}`,
-          `> │ ✏️ *Anti-edit* › ${state(CONFIG.ANTIEDIT)}`,
-          `> │ 📖 *Auto-read* › ${state(CONFIG.AUTO_READ)}`,
-          `> │ 👁️ *Auto-view* › ${state(CONFIG.AUTO_VIEW)}`,
-          `> │ ❤️ *Auto-like* › ${state(CONFIG.AUTO_LIKE)}`,
-          `> │ 💬 *DM presence* › ${CONFIG.DM_PRESENCE || 'none'}`,
-          `> │ 👥 *Group presence* › ${CONFIG.GRP_PRESENCE || 'none'}`,
-          `> │ 📅 *Connected at* › ${connectedAt.format('DD/MM/YYYY HH:mm:ss')}`,
-          `> │ 📢 *Channel* › ${CONFIG.CHANNEL_URL || 'not configured'}`,
-          `> ╰⊷ ✨ _Powered by ${ownerName}_`
-        ].join('\n')
         const linkedAccountJid = getCleanJid(sock.user?.id || sock.user?.lid)
         const targetJid = getOwnerJid() || linkedAccountJid
+        const connectedPhone = getPhoneFromJid(linkedAccountJid)
+        const connectedTag = connectedPhone ? `@${connectedPhone}` : linkedAccountJid ? `@${linkedAccountJid.split('@')[0]}` : 'Connected account'
+        const connectedName = String(sock.user?.name || CONFIG.OWNER_NAME || 'Connected account').replace(/[\r\n]/g, ' ').trim().slice(0, 64)
+        const mode = String(CONFIG.MODE || 'public').toLowerCase()
+        const modeLabel = mode === 'group' ? 'GROUP ONLY' : mode.toUpperCase()
+        const connInfo = [
+          `> ╭─⌈ 🔥 *${CONFIG.BOT_NAME}* ⌋`,
+          '> │ ✅ *STATUS* › *CONNECTED*',
+          `> │ 🛠️ *Mode* › *${modeLabel}*`,
+          `> │ 🖥️ *Host* › *${getHostingProvider()}*`,
+          `> │ 🌐 *Website* › ${CONFIG.HOSTING_URL || 'not configured'}`,
+          `> │ 👤 *Connected by* › ${connectedTag} (*${connectedName}*)`,
+          '> ╰⊷'
+        ].join('\n')
+        const statusPayload = { text: connInfo }
+        if (linkedAccountJid) statusPayload.mentions = [linkedAccountJid]
         if (targetJid) {
           setTimeout(async () => {
+            let deliveredTo = targetJid
             try {
-              await sock.sendMessage(targetJid, { text: connInfo })
+              await sock.sendMessage(targetJid, statusPayload)
               console.log('✅ ULTRA GURU connected status table sent')
             } catch (err) {
               logError('Send Connection Message', null, null, err.message)
               if (linkedAccountJid && linkedAccountJid !== targetJid) {
                 try {
-                  await sock.sendMessage(linkedAccountJid, { text: connInfo })
+                  await sock.sendMessage(linkedAccountJid, statusPayload)
+                  deliveredTo = linkedAccountJid
                   console.log('✅ ULTRA GURU status table sent to linked account')
-                  return
                 } catch (fallbackError) {
                   logError('Send Connection Message Fallback', null, null, fallbackError.message)
+                  connectionMessageSent = false
+                  return
                 }
+              } else {
+                connectionMessageSent = false
+                return
               }
-              connectionMessageSent = false
+            }
+
+            if (CONFIG.CHANNEL_URL) {
+              try {
+                await sock.sendMessage(deliveredTo, {
+                  text: `📢 *${CONFIG.BOT_NAME} WhatsApp Channel*`,
+                  contextInfo: {
+                    externalAdReply: {
+                      title: `${CONFIG.BOT_NAME} Updates`,
+                      body: 'Tap to open the official WhatsApp Channel',
+                      sourceUrl: CONFIG.CHANNEL_URL,
+                      thumbnailUrl: CONFIG.BOT_PIC,
+                      mediaType: 1,
+                      renderLargerThumbnail: true,
+                      showAdAttribution: false
+                    }
+                  }
+                })
+              } catch (channelError) {
+                logError('Send Channel Preview', null, null, channelError.message)
+              }
             }
           }, 2000)
         } else {
@@ -690,6 +717,19 @@ async function start() {
           typeMsg
         )
 
+        if (String(CONFIG.MODE || 'private').toLowerCase() === 'group' && !isGroupChat) {
+          let possibleCommand = ''
+          const trimmedBody = String(body || '').trim()
+          if (CONFIG.PREFIXES.length === 0) possibleCommand = trimmedBody.split(/\s+/)[0].toLowerCase()
+          else {
+            const matchedPrefix = CONFIG.PREFIXES.find(prefix => trimmedBody.startsWith(prefix))
+            if (matchedPrefix) possibleCommand = trimmedBody.slice(matchedPrefix.length).trim().split(/\s+/)[0].toLowerCase()
+          }
+          const resolvedPrivateCommand = commandAliases.get(possibleCommand) || possibleCommand
+          const ownerCanChangeMode = resolvedPrivateCommand === 'mod' && (isDevUser(senderJid) || getSenderPhone(senderJid) === OWNER_NUMBER)
+          if (!ownerCanChangeMode) continue
+        }
+
         try {
           const statusReplied = await handleStatusReply(msg, sock, senderJid)
           if (statusReplied) {
@@ -702,7 +742,8 @@ async function start() {
         const linkedJids = [sockUserJid, sock.user?.lid].filter(Boolean).map(getCleanJid)
         const isLinkedSelfChat = linkedJids.includes(getCleanJid(from))
         if ((!isFromMe || isLinkedSelfChat) && !isEdit && /^\d+$/.test(String(body).trim())) {
-          const selectionAllowed = CONFIG.MODE !== 'private' || isAllowedUser(msg, sockUserJid)
+          const currentMode = String(CONFIG.MODE || 'private').toLowerCase()
+          const selectionAllowed = (currentMode !== 'group' || isGroupChat) && (currentMode !== 'private' || isAllowedUser(msg, sockUserJid))
           if (selectionAllowed) {
             try {
               const handled = await handleMenuCategoryReply({ sock, from, sender: senderJid, msg, body })
@@ -764,6 +805,10 @@ async function start() {
           continue
         }
 
+        const currentMode = String(CONFIG.MODE || 'private').toLowerCase()
+        const ownerMayChangeMode = name === 'mod' && (isDevUser(senderJid) || getSenderPhone(senderJid) === OWNER_NUMBER)
+        if (currentMode === 'group' && !isGroupChat && !ownerMayChangeMode) continue
+
         const commandKey = `${msg.key.id}_${name}`
         if (executingCommands.has(commandKey)) {
           console.log(`⏩ Command ${name} already executing for ${msg.key.id}`)
@@ -800,6 +845,7 @@ async function start() {
             args,
             text: args.join(' '),
             commands,
+            commandAliases,
             config: CONFIG,
             global,
             isOwner,

@@ -75,6 +75,52 @@ function getCategoryEntries(commands) {
         });
 }
 
+export function expandInvocableCommands(commands, commandAliases = new Map()) {
+    const invocable = new Map();
+    for (const command of commands || []) {
+        if (command?.name) invocable.set(String(command.name).toLowerCase(), command);
+    }
+    const aliases = commandAliases instanceof Map ? new Map(commandAliases) : new Map();
+    if (!aliases.size) {
+        for (const command of commands || []) {
+            for (const alias of command?.aliases || []) {
+                if (command?.name) aliases.set(String(alias).toLowerCase(), String(command.name).toLowerCase());
+            }
+        }
+    }
+    for (const [alias, targetName] of aliases) {
+        const target = invocable.get(String(targetName).toLowerCase());
+        if (target && alias) invocable.set(String(alias).toLowerCase(), { ...target, name: String(alias).toLowerCase(), aliases: [] });
+    }
+    return [...invocable.values()];
+}
+
+export async function sendMenuVisual(sock, from, text, msg) {
+    const imageUrl = CONFIG.BOT_PIC || CONFIG.MENU_IMAGES?.[0];
+    const options = msg ? { quoted: msg } : {};
+    if (!imageUrl) return [await sock.sendMessage(from, { text }, options)];
+
+    const lines = String(text || '').split('\n');
+    const captionLines = [];
+    while (lines.length && (`${captionLines.join('\n')}${captionLines.length ? '\n' : ''}${lines[0]}`).length <= 900) {
+        captionLines.push(lines.shift());
+    }
+    if (!captionLines.length && lines.length) captionLines.push(lines.shift().slice(0, 900));
+    const caption = captionLines.join('\n');
+    let imageMessage;
+    try {
+        imageMessage = await sock.sendMessage(from, { image: { url: imageUrl }, caption }, options);
+    } catch (error) {
+        console.warn('Menu bot image could not be sent; using text fallback:', error.message);
+        return [await sock.sendMessage(from, { text }, options)];
+    }
+
+    const sent = [imageMessage];
+    const remainder = lines.join('\n').trim();
+    if (remainder) sent.push(await sock.sendMessage(from, { text: remainder }, options));
+    return sent;
+}
+
 function resolveCategorySelection(value, categories) {
     const selection = String(value || '').trim();
     if (!selection) return null;
@@ -105,7 +151,7 @@ function categoryMenuKey(chat) {
     return String(chat || '');
 }
 
-function rememberCategoryMenu(chat, categories, prefix, botName, ownerName, messageId) {
+function rememberCategoryMenu(chat, categories, prefix, botName, ownerName, messageIds) {
     const now = Date.now();
     for (const [key, value] of categoryMenuSessions) {
         if (value.expiresAt <= now) categoryMenuSessions.delete(key);
@@ -114,7 +160,8 @@ function rememberCategoryMenu(chat, categories, prefix, botName, ownerName, mess
         categoryMenuSessions.delete(categoryMenuSessions.keys().next().value);
     }
     categoryMenuSessions.set(categoryMenuKey(chat), {
-        categories, prefix, botName, ownerName, messageId,
+        categories, prefix, botName, ownerName,
+        messageIds: (Array.isArray(messageIds) ? messageIds : [messageIds]).filter(Boolean),
         expiresAt: now + CATEGORY_MENU_TTL_MS
     });
 }
@@ -131,7 +178,7 @@ export async function handleMenuCategoryReply({ sock, from, sender, msg, body })
     const selection = String(body || '').trim();
     if (!/^\d+$/.test(selection)) return false;
     const quotedId = msg.message?.extendedTextMessage?.contextInfo?.stanzaId;
-    if (quotedId && session.messageId && quotedId !== session.messageId) return false;
+    if (quotedId && session.messageIds.length && !session.messageIds.includes(quotedId)) return false;
 
     const resolved = resolveCategorySelection(selection, session.categories);
     if (!resolved) {
@@ -141,9 +188,7 @@ export async function handleMenuCategoryReply({ sock, from, sender, msg, body })
         return true;
     }
 
-    await sock.sendMessage(from, {
-        text: renderCategoryCommands({ ...resolved, ...session })
-    }, { quoted: msg });
+    await sendMenuVisual(sock, from, renderCategoryCommands({ ...resolved, ...session }), msg);
     return true;
 }
 
@@ -154,7 +199,7 @@ export const commands = [
         description: 'Show all available bot commands.',
         category: 'General',
 
-        execute: async ({ sock, from, msg, commands, text, auteurMessage, nomAuteurMessage }) => {
+        execute: async ({ sock, from, msg, commands, commandAliases, text, auteurMessage, nomAuteurMessage }) => {
             try {
                 const botName = CONFIG.BOT_NAME || 'ULTRA GURU';
                 const botVersion = CONFIG.BOT_VERSION || '3.0.0';
@@ -162,7 +207,7 @@ export const commands = [
                 const tz = CONFIG.TZ || 'Africa/Nairobi';
                 const prefix = CONFIG.PREFIXES?.[0] || '';
                 const prefixLabel = prefix || 'None';
-                const list = Array.from(commands.values());
+                const list = expandInvocableCommands(Array.from(commands.values()), commandAliases);
 
                 if (!list.length) {
                     return sock.sendMessage(from, { text: '❌ Command list not available.' }, { quoted: msg });
@@ -177,9 +222,7 @@ export const commands = [
                 if (selector) {
                     const selected = resolveCategorySelection(selector, categories);
                     if (selected) {
-                        return sock.sendMessage(from, {
-                            text: renderCategoryCommands({ ...selected, prefix, botName, ownerName })
-                        }, { quoted: msg });
+                        return sendMenuVisual(sock, from, renderCategoryCommands({ ...selected, prefix, botName, ownerName }), msg);
                     }
                     return sock.sendMessage(from, {
                         text: `Choose a category with \`${prefix || '.'}menu 1\`–\`${prefix || '.'}menu ${categories.length}\`, or run \`${prefix || '.'}menu\` to see the index.`
@@ -208,7 +251,7 @@ export const commands = [
                     `> │ 💬 Commands  ›  *${list.length}*`,
                     `> │ ⏱️  Uptime    ›  *${uptime}*`,
                     `> │ 🔑  Prefix    ›  *${prefixLabel}*`,
-                    `> │ 🛠️  Mode      ›  *${String(CONFIG.MODE || 'public').toUpperCase()}*`,
+                    `> │ 🛠️  Mode      ›  *${String(CONFIG.MODE || 'public').toLowerCase() === 'group' ? 'GROUP ONLY' : String(CONFIG.MODE || 'public').toUpperCase()}*`,
                     `> │ 💾  RAM       ›  *${ramBar} ${ramPercent}%*`,
                     '> │',
                     `> │ 📋 *CATEGORIES*  ·  _reply 1–${categories.length}_`,
@@ -217,9 +260,9 @@ export const commands = [
                     `> ╰⊷ ✨ _Powered by ${ownerName}_`
                 ].join('\n');
 
-                const sent = await sock.sendMessage(from, { text: menuText }, { quoted: msg });
-                rememberCategoryMenu(from, categories, prefix, botName, ownerName, sent?.key?.id);
-                return sent;
+                const sent = await sendMenuVisual(sock, from, menuText, msg);
+                rememberCategoryMenu(from, categories, prefix, botName, ownerName, sent.map(item => item?.key?.id));
+                return sent.at(-1);
             } catch (error) {
                 console.error('Menu error:', error);
                 return sock.sendMessage(from, { text: '❌ Error loading menu.' }, { quoted: msg });
