@@ -17,7 +17,7 @@ function ownerOnlyReply(sock, from, msg, isOwner) {
 }
 
 function getRepository(config) {
-  return String(process.env.UPDATE_REPOSITORY || config?.UPDATE_REPOSITORY || 'cleanplata/ULTRA-GURU-MD')
+  return String(process.env.UPDATE_REPOSITORY || config?.UPDATE_REPOSITORY || 'GuruhTech/ULTRA-GURU')
     .replace(/^https?:\/\/github\.com\//i, '')
     .replace(/\.git$/i, '')
     .replace(/\/+$/, '')
@@ -64,6 +64,21 @@ export const commands = [
         const commit = await response.json()
         const latestSha = String(commit.sha || '')
         if (!/^[a-f0-9]{40}$/i.test(latestSha)) throw new Error('GitHub did not return a valid commit SHA.')
+
+        const treeResponse = await fetch(`https://api.github.com/repos/${repository}/git/trees/${latestSha}?recursive=1`, {
+          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'ULTRA-GURU-update-check' },
+          signal: AbortSignal.timeout(8000)
+        })
+        if (!treeResponse.ok) throw new Error(`Could not verify the primary repository source tree (GitHub HTTP ${treeResponse.status}).`)
+        const sourceTree = await treeResponse.json()
+        const sourcePaths = new Set((sourceTree.tree || []).map(item => item.path))
+        const requiredPaths = ['package.json', 'Guru Tech/index.js', 'Guru Tech/config.js', 'Guru/commands/Admin.js']
+        const missingPaths = requiredPaths.filter(file => !sourcePaths.has(file))
+        if (missingPaths.length) {
+          return sock.sendMessage(from, {
+            text: `⚠️ Update not started. The configured primary repository (${repository}) is missing required ULTRA GURU files: ${missingPaths.join(', ')}. It appears behind this bot's current source, so deploying it could replace the running code with an older version. Sync the current ULTRA GURU source to the primary repository, then run .update again.`
+          }, { quoted: msg })
+        }
 
         const deployedSha = process.env.HEROKU_SLUG_COMMIT || process.env.SOURCE_VERSION || process.env.GITHUB_SHA || ''
         if (deployedSha && deployedSha.toLowerCase() === latestSha.toLowerCase()) {

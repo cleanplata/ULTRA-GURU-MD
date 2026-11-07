@@ -125,7 +125,7 @@
     },
     "UPDATE_REPOSITORY": {
       "description": "GitHub owner/repository to deploy from main when the owner runs .update",
-      "value": "cleanplata/ULTRA-GURU-MD",
+      "value": "GuruhTech/ULTRA-GURU",
       "required": false
     }
   },
