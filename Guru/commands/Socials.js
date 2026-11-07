@@ -9,7 +9,7 @@ export const commands = [
     description: 'Search Google and get top results.',
     category: 'Search',
     execute: async ({ sock, from, text, msg, config }) => {
-      const botName = config.BOT_NAME || 'Flash-MD';
+      const botName = config.BOT_NAME || 'ULTRA GURU';
 
       if (!text) {
         const noQueryMsg = await t(from, 'google', 'noQuery');
@@ -65,7 +65,7 @@ export const commands = [
     description: 'Fetch GitHub user profile info.',
     category: 'Search',
     execute: async ({ sock, from, text, msg, config }) => {
-      const botName = config.BOT_NAME || 'Flash-MD';
+      const botName = config.BOT_NAME || 'ULTRA GURU';
       const args = text.trim().split(/\s+/);
       const username = args[0];
 

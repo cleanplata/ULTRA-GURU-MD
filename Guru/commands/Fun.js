@@ -193,7 +193,7 @@ export const commands = [
 
         if (response.data?.status) {
           const stickerMess = new Sticker(response.data.result, {
-            pack: 'FLASH-MD',
+            pack: 'ULTRA GURU',
             type: StickerTypes.CROPPED,
             categories: ['🤩', '🎉'],
             id: '12345',

@@ -1,5 +1,5 @@
-
 import now from 'performance-now'
+import CONFIG from '../../Guru Tech/config.js'
 
 if (!global.botStartTime) global.botStartTime = Date.now()
 
@@ -12,39 +12,22 @@ export const commands = [
 
     execute: async ({ sock, from, msg }) => {
       const start = now()
-      const jid = from
-      const senderId = (msg.key.participant || msg.key.remoteJid).split('@')[0]
-
+      const botName = CONFIG.BOT_NAME || 'ULTRA GURU'
       const pingMsg = await sock.sendMessage(
-        jid,
+        from,
         { text: 'Pinging...' },
-        {
-          quoted: {
-            key: {
-              fromMe: false,
-              participant: '0@s.whatsapp.net',
-              remoteJid: 'status@broadcast'
-            },
-            message: {
-              contactMessage: {
-                displayName: 'FLASH-MD-V3',
-                vcard: `BEGIN:VCARD\nVERSION:3.0\nN:;Flash-MD;;;\nFN:FLASH-MD-V3\nitem1.TEL;waid=${senderId}:${senderId}\nitem1.X-ABLabel:Mobile\nEND:VCARD`
-              }
-            }
-          }
-        }
+        { quoted: msg }
       )
 
       const latency = Math.round(now() - start)
-
       await sock.relayMessage(
-        jid,
+        from,
         {
           protocolMessage: {
             key: pingMsg.key,
             type: 14,
             editedMessage: {
-              conversation: `🏓 Pong!\n⏱️ *_Flash-MD-V3 Speed: ${latency} ms_*`
+              conversation: `🏓 Pong!\n⏱️ *_${botName} Speed: ${latency} ms_*`
             }
           }
         },
@@ -61,26 +44,11 @@ export const commands = [
     execute: async ({ sock, from, msg }) => {
       const uptime = Date.now() - global.botStartTime
       const formatted = formatUptime(uptime)
-      const senderId = (msg.key.participant || msg.key.remoteJid).split('@')[0]
-
+      const botName = CONFIG.BOT_NAME || 'ULTRA GURU'
       await sock.sendMessage(
         from,
-        { text: `*_FLASH-MD-V3 UPTIME: ${formatted}_*` },
-        {
-          quoted: {
-            key: {
-              fromMe: false,
-              participant: '0@s.whatsapp.net',
-              remoteJid: 'status@broadcast'
-            },
-            message: {
-              contactMessage: {
-                displayName: 'FLASH-MD-V3',
-                vcard: `BEGIN:VCARD\nVERSION:3.0\nN:;Flash-MD;;;\nFN:FLASH-MD-V3\nitem1.TEL;waid=${senderId}:${senderId}\nitem1.X-ABLabel:Mobile\nEND:VCARD`
-              }
-            }
-          }
-        }
+        { text: `*_${botName} UPTIME: ${formatted}_*` },
+        { quoted: msg }
       )
     }
   }
@@ -93,11 +61,9 @@ function formatUptime(ms) {
   const day = Math.floor(ms / (1000 * 60 * 60 * 24))
 
   const parts = []
-
   if (day) parts.push(`${day} day${day > 1 ? 's' : ''}`)
   if (hr) parts.push(`${hr} h`)
   if (min) parts.push(`${min} m`)
   parts.push(`${sec} s`)
-
   return parts.join(', ')
 }

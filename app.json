@@ -45,11 +45,11 @@
       "required": false
     },
     "SESSION": {
-      "description": "Flash-Md-V3 base64-encoded creds.json session (optional if SESSION_ID is set)",
+      "description": "Base64-encoded creds.json session (optional if SESSION_ID is set)",
       "required": false
     },
     "SESSION_ID": {
-      "description": "Existing ULTRA GURU session in GURU~gzip-base64 format (or Flash-Md-V3 base64 session)",
+      "description": "GURU~gzip-base64 session or plain base64-encoded creds.json; both formats are accepted",
       "required": false
     },
     "USER_LID": {
@@ -107,7 +107,7 @@
       "required": false
     },
     "MENU_IMAGES": {
-      "description": "Optional comma-separated menu image URLs; defaults to BOT_PIC",
+      "description": "Optional comma-separated menu image URLs; retained for deployment compatibility",
       "required": false
     }
   },

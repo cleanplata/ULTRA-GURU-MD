@@ -15,7 +15,7 @@ export const commands = [
         category: 'Owner',
         ownerOnly: true,
         execute: async ({ sock, from, text, msg, config }) => {
-            const botName = config.BOT_NAME || 'Flash-MD';
+            const botName = config.BOT_NAME || 'ULTRA GURU';
 
             const args = text.trim().split(/\s+/);
             const option = args[0]?.toLowerCase() || '';

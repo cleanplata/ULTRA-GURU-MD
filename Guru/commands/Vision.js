@@ -11,7 +11,7 @@ export const commands = [
     category: 'AI',
     execute: async ({ sock, from, msg, args, config }) => {
       const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-      const botName = config.BOT_NAME || 'Flash-MD';
+      const botName = config.BOT_NAME || 'ULTRA GURU';
 
       if (!quoted || !quoted.imageMessage) {
         const noImageMsg = await t(from, 'vision', 'noImage');

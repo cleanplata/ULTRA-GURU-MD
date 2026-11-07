@@ -15,7 +15,7 @@ export const commands = [
         category: 'Owner',
         ownerOnly: true,
         execute: async ({ sock, from, text, msg, config }) => {
-            const botName = config.BOT_NAME || 'Flash-MD';
+            const botName = config.BOT_NAME || 'ULTRA GURU';
 
             const creatingMsg = await t(from, 'zip', 'creating');
             const processingMsg = await sock.sendMessage(from, { text: creatingMsg }, { quoted: msg });

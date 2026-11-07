@@ -1,6 +1,5 @@
 import os from 'os';
 import moment from 'moment-timezone';
-import axios from 'axios';
 import CONFIG from '../../Guru Tech/config.js';
 import { t, translate, translateAIResponse, getUserLang } from '../france/translator.js';
 
@@ -24,103 +23,128 @@ const applyStyle = (text, styleNum) => {
 };
 
 const formatUptime = ms => {
-    const sec = Math.floor(ms / 1000) % 60;
-    const min = Math.floor(ms / (1000 * 60)) % 60;
-    const hr = Math.floor(ms / (1000 * 60 * 60)) % 24;
-    const day = Math.floor(ms / (1000 * 60 * 60 * 24));
-    const parts = [];
-    if (day === 1) parts.push(`1 day`);
-    else if (day > 1) parts.push(`${day} days`);
-    if (hr === 1) parts.push(`1 hour`);
-    else if (hr > 1) parts.push(`${hr} h`);
-    if (min === 1) parts.push(`1 minute`);
-    else if (min > 1) parts.push(`${min} m`);
-    if (sec === 1) parts.push(`1 second`);
-    else if (sec > 1 || parts.length === 0) parts.push(`${sec} s`);
-    return parts.join(', ');
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${days}d ${hours}h ${minutes}m ${seconds}s`;
 };
 
-const detectPlatform = () => {
-    const hostEnv = process.env.HOST_PROVIDER?.toLowerCase();
-
-    const providers = {
-        'optiklink': 'Optiklink.com',
-        'bot-hosting': 'Bot-Hosting.net',
-        'heroku': 'Heroku',
-        'railway': 'Railway',
-        'koyeb': 'Koyeb',
-        'render': 'Render',
-        'github': 'GitHub Actions',
-        'katabump': 'Katabump.com'
-    };
-
-    if (hostEnv && providers[hostEnv]) return providers[hostEnv];
-    if (process.env.RAILWAY_STATIC_URL || process.env.RAILWAY_ENVIRONMENT) return 'Railway';
-    if (process.env.KOYEB_ENV) return 'Koyeb';
-    if (process.env.RENDER) return 'Render';
-    if (process.env.GITHUB_WORKFLOW || process.env.GITHUB_ACTIONS) return 'GitHub Actions';
-    if (process.env.DYNO) return 'Heroku';
-
-    return 'PANEL';
+const preferredCategoryOrder = [
+    'GENERAL', 'AI', 'DOWNLOADER', 'TOOLS', 'SEARCH', 'GROUP', 'OWNER', 'SETTINGS',
+    'FUN', 'CONVERTER', 'RELIGION', 'NOTES', 'SPORTS', 'ULTRACORE', 'ADVERTISE',
+    'API', 'ECONOMY', 'GAME', 'LOGO', 'ULTRA PICS', 'TEMPMAIL', 'UPLOADER', 'UTILITY'
+];
+const categoryMenuSessions = new Map();
+const CATEGORY_MENU_TTL_MS = 10 * 60 * 1000;
+const normalizeCategoryName = value => String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const categoryAliases = {
+    DOWNLOAD: 'DOWNLOADER',
+    FINANCE: 'ECONOMY',
+    WHATSAPP: 'UTILITY',
+    ULTRAPICS: 'ULTRA PICS'
 };
 
-const fetchRepoStats = async () => {
-    try {
-        const response = await axios.get(`https://api.github.com/repos/${CONFIG.GITHUB_REPO}`);
-
-        const { forks_count, stargazers_count } = response.data;
-
-        return {
-            forks: forks_count || 0,
-            stars: stargazers_count || 0
-        };
-
-    } catch {
-        return {
-            forks: 0,
-            stars: 0
-        };
+function getCategoryEntries(commands) {
+    const grouped = new Map();
+    for (const command of commands) {
+        if (!command?.name) continue;
+        const sourceName = String(command.category || 'General').trim() || 'General';
+        const normalizedName = normalizeCategoryName(sourceName);
+        const name = categoryAliases[normalizedName] || sourceName.toUpperCase();
+        if (!grouped.has(name)) grouped.set(name, []);
+        grouped.get(name).push(command);
     }
-};
 
-const more = String.fromCharCode(8206);
-const readmore = more.repeat(4001);
-
-export function buildCategoryTables(grouped, prefix = '') {
-    const commandPrefix = String(prefix || '').trim();
-    const categories = Object.entries(grouped)
-        .map(([category, items]) => ({
-            category,
-            commands: items.filter(command => command?.name).sort((a, b) => a.name.localeCompare(b.name))
+    const preferred = new Map(preferredCategoryOrder.map((name, index) => [normalizeCategoryName(name), index]));
+    return [...grouped.entries()]
+        .map(([name, items]) => ({
+            name,
+            commands: items.sort((a, b) => a.name.localeCompare(b.name))
         }))
-        .filter(entry => entry.commands.length > 0)
-        .sort((a, b) => a.category.localeCompare(b.category));
+        .sort((a, b) => {
+            const ai = preferred.get(normalizeCategoryName(a.name));
+            const bi = preferred.get(normalizeCategoryName(b.name));
+            if (ai !== undefined || bi !== undefined) {
+                if (ai === undefined) return 1;
+                if (bi === undefined) return -1;
+                if (ai !== bi) return ai - bi;
+            }
+            return a.name.localeCompare(b.name);
+        });
+}
 
-    const tables = categories.map((entry, index) => {
-        const names = entry.commands.map(command => `${commandPrefix}${command.name}`);
-        const title = `${String(index + 1).padStart(2, '0')} ${entry.category.toUpperCase()} (${names.length})`;
-        const cellWidth = Math.max(10, ...names.map(name => name.length), Math.ceil((title.length - 3) / 2));
-        const tableWidth = cellWidth * 2 + 7;
-        const border = '─'.repeat(tableWidth - 2);
-        const divider = `├${'─'.repeat(cellWidth + 2)}┬${'─'.repeat(cellWidth + 2)}┤`;
-        const rows = [];
+function resolveCategorySelection(value, categories) {
+    const selection = String(value || '').trim();
+    if (!selection) return null;
+    if (/^\d+$/.test(selection)) {
+        const index = Number(selection) - 1;
+        return categories[index] ? { category: categories[index], index } : null;
+    }
+    const normalized = normalizeCategoryName(selection);
+    const index = categories.findIndex(item => normalizeCategoryName(item.name) === normalized);
+    return index < 0 ? null : { category: categories[index], index };
+}
 
-        for (let i = 0; i < names.length; i += 2) {
-            const left = names[i] || '';
-            const right = names[i + 1] || '';
-            rows.push(`│ ${left.padEnd(cellWidth)} │ ${right.padEnd(cellWidth)} │`);
-        }
-
-        return [
-            `╭${border}╮`,
-            `│ ${title.padEnd(tableWidth - 4)} │`,
-            divider,
-            ...rows,
-            `╰${border}╯`
-        ].join('\n');
+function renderCategoryCommands({ category, index, prefix, botName, ownerName }) {
+    const lines = category.commands.map(command => {
+        const description = String(command.description || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+        return `> │ ▫️ ${prefix}${command.name}${description ? ` — ${description}` : ''}`;
     });
+    return [
+        `> ╭─⌈ 🔥 *${botName}* · _${category.name.toUpperCase()}_ ⌋`,
+        `> │ 📋 *${String(index + 1).padStart(2, '0')} ${category.name.toUpperCase()}* · *${category.commands.length} commands*`,
+        '> │',
+        ...lines,
+        `> ╰⊷ ✨ _Powered by ${ownerName}_`
+    ].join('\n');
+}
 
-    return `\`\`\`\n${tables.join('\n\n')}\n\`\`\``;
+function categoryMenuKey(chat, sender) {
+    return `${chat}:${sender}`;
+}
+
+function rememberCategoryMenu(chat, sender, categories, prefix, botName, ownerName, messageId) {
+    const now = Date.now();
+    for (const [key, value] of categoryMenuSessions) {
+        if (value.expiresAt <= now) categoryMenuSessions.delete(key);
+    }
+    if (categoryMenuSessions.size >= 500) {
+        categoryMenuSessions.delete(categoryMenuSessions.keys().next().value);
+    }
+    categoryMenuSessions.set(categoryMenuKey(chat, sender), {
+        categories, prefix, botName, ownerName, messageId,
+        expiresAt: now + CATEGORY_MENU_TTL_MS
+    });
+}
+
+export async function handleMenuCategoryReply({ sock, from, sender, msg, body }) {
+    const key = categoryMenuKey(from, sender);
+    const session = categoryMenuSessions.get(key);
+    if (!session) return false;
+    if (session.expiresAt <= Date.now()) {
+        categoryMenuSessions.delete(key);
+        return false;
+    }
+
+    const selection = String(body || '').trim();
+    if (!/^\d+$/.test(selection)) return false;
+    const quotedId = msg.message?.extendedTextMessage?.contextInfo?.stanzaId;
+    if (quotedId && session.messageId && quotedId !== session.messageId) return false;
+
+    const resolved = resolveCategorySelection(selection, session.categories);
+    if (!resolved) {
+        await sock.sendMessage(from, {
+            text: `Please reply with a category number from 1 to ${session.categories.length}.`
+        }, { quoted: msg });
+        return true;
+    }
+
+    await sock.sendMessage(from, {
+        text: renderCategoryCommands({ ...resolved, ...session })
+    }, { quoted: msg });
+    return true;
 }
 
 export const commands = [
@@ -130,166 +154,76 @@ export const commands = [
         description: 'Show all available bot commands.',
         category: 'General',
 
-        execute: async ({ sock, from, msg, commands, auteurMessage, nomAuteurMessage }) => {
+        execute: async ({ sock, from, msg, commands, text, sender, auteurMessage, nomAuteurMessage }) => {
             try {
-
                 const botName = CONFIG.BOT_NAME || 'ULTRA GURU';
                 const botVersion = CONFIG.BOT_VERSION || '3.0.0';
                 const ownerName = CONFIG.OWNER_NAME || 'GuruTech';
                 const tz = CONFIG.TZ || 'Africa/Nairobi';
-                const prefix = CONFIG.PREFIXES?.[0] || ' ';
-                const mode = CONFIG.MODE === 'public' ? 'Public' : 'Private';
-                const menuImages = CONFIG.MENU_IMAGES || [];
-
+                const prefix = CONFIG.PREFIXES?.[0] || '';
+                const prefixLabel = prefix || 'None';
                 const list = Array.from(commands.values());
 
                 if (!list.length) {
-                    return sock.sendMessage(from, {
-                        text: '❌ Command list not available.'
-                    }, { quoted: msg });
+                    return sock.sendMessage(from, { text: '❌ Command list not available.' }, { quoted: msg });
                 }
 
-                const time = moment().tz(tz);
-                const hour = time.hour();
-
-                let greeting = "Good Night";
-
-                if (hour >= 0 && hour <= 11) {
-                    greeting = "Good Morning";
-                } else if (hour >= 12 && hour <= 16) {
-                    greeting = "Good Afternoon";
-                } else if (hour >= 16 && hour <= 21) {
-                    greeting = "Good Evening";
+                const categories = getCategoryEntries(list);
+                if (!categories.length) {
+                    return sock.sendMessage(from, { text: '❌ Category list not available.' }, { quoted: msg });
                 }
 
-                const userName = nomAuteurMessage || auteurMessage || ownerName;
-
-                const uptime = formatUptime(Date.now() - startTime);
-                const platform = detectPlatform();
-
-                const usedMem = (
-                    (os.totalmem() - os.freemem()) /
-                    1024 /
-                    1024 /
-                    1024
-                ).toFixed(2);
-
-                const totalMem = (
-                    os.totalmem() /
-                    1024 /
-                    1024 /
-                    1024
-                ).toFixed(2);
-
-                const { forks, stars } = await fetchRepoStats();
-
-                const users = (stars * 3) + (forks * 2);
-                const usersFormatted = users.toLocaleString();
-
-                const grouped = {};
-
-                for (const cmd of list) {
-                    const category = cmd.category || 'General';
-
-                    if (!grouped[category]) {
-                        grouped[category] = [];
+                const selector = String(text || '').trim();
+                if (selector) {
+                    const selected = resolveCategorySelection(selector, categories);
+                    if (selected) {
+                        return sock.sendMessage(from, {
+                            text: renderCategoryCommands({ ...selected, prefix, botName, ownerName })
+                        }, { quoted: msg });
                     }
-
-                    grouped[category].push(cmd);
-                }
-
-                let menuText = `*${greeting} ${userName}*\n\n`;
-
-                menuText += `╭━━━❒ ${applyStyle(`${botName} ${botVersion}`, 10)} ❒━━━╮\n`;
-                menuText += `┃❃╭────────────────\n`;
-                menuText += `┃❃│ *Owner:* ${ownerName}\n`;
-                menuText += `┃❃│ *Channel:* ${CONFIG.CHANNEL_URL}\n`;
-                menuText += `┃❃│ *Prefix:* ${prefix}\n`;
-                menuText += `┃❃│ *Commands:* ${list.length}\n`;
-                menuText += `┃❃│ *Time:* ${time.format('HH:mm:ss')}\n`;
-                menuText += `┃❃│ *Date:* ${time.format('DD/MM/YYYY')}\n`;
-                menuText += `┃❃│ *Mode:* ${mode}\n`;
-                menuText += `┃❃│ *Timezone:* ${tz}\n`;
-                menuText += `┃❃│ *Total Users:* ${usersFormatted}\n`;
-                menuText += `┃❃│ *RAM:* ${usedMem}/${totalMem} GB\n`;
-                menuText += `┃❃│ *Uptime:* ${uptime}\n`;
-                menuText += `┃❃│ *Platform:* ${platform}\n`;
-                menuText += `┃❃╰────────────────\n`;
-                menuText += `╰━━━━━❒ ${applyStyle(`VERSION ${botVersion}`, 10)} ❒━━━━╯\n\n`;
-
-                menuText += `*◇ ${botName} CATEGORY MENU ◇*\n\n`;
-                menuText += `${buildCategoryTables(grouped, prefix)}\n\n`;
-
-                menuText += `${readmore}\n`;
-                menuText += `◇ *${botName} MULTI DEVICE* ◇\n\n`;
-                menuText += `   *Released: 22.2.2024*\n\n`;
-                menuText += ` _Thanks For choosing ${botName}_\n\n`;
-                menuText += `  Created by *${ownerName} ©2024*\n\n`;
-                menuText += `     *KEEP USING ${botName}*\n`;
-
-                const defaultMedia = [
-                    'https://picsum.photos/700/900',
-                    'https://h.uguu.se/qhKuTfqE.mp4'
-                ];
-
-                const allMedia = menuImages.length
-                    ? menuImages
-                    : (CONFIG.BOT_PIC ? [CONFIG.BOT_PIC] : defaultMedia);
-
-                const randomImage = allMedia[
-                    Math.floor(Math.random() * allMedia.length)
-                ];
-
-                const isVideo = randomImage.endsWith('.mp4');
-
-                try {
-
-                    await sock.sendMessage(from, {
-                        ...(isVideo
-                            ? { video: { url: randomImage } }
-                            : { image: { url: randomImage } }),
-
-                        caption: menuText,
-
-                        contextInfo: {
-                            forwardingScore: 1,
-                            isForwarded: true,
-
-                            forwardedNewsletterMessageInfo: {
-                                newsletterJid: CONFIG.CHANNEL_JID,
-                                newsletterName: botName,
-                                serverMessageId: -1
-                            }
-                        }
-
-                    }, { quoted: msg });
-
-                } catch {
-
-                    await sock.sendMessage(from, {
-                        text: menuText,
-
-                        contextInfo: {
-                            forwardingScore: 1,
-                            isForwarded: true,
-
-                            forwardedNewsletterMessageInfo: {
-                                newsletterJid: CONFIG.CHANNEL_JID,
-                                newsletterName: botName,
-                                serverMessageId: -1
-                            }
-                        }
-
+                    return sock.sendMessage(from, {
+                        text: `Choose a category with \`${prefix || '.'}menu 1\`–\`${prefix || '.'}menu ${categories.length}\`, or run \`${prefix || '.'}menu\` to see the index.`
                     }, { quoted: msg });
                 }
 
+                const now = moment().tz(tz);
+                const hour = now.hour();
+                const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : hour < 21 ? 'Good Evening' : 'Good Night';
+                const greetingIcon = hour < 12 ? '🌅' : hour < 17 ? '☀️' : hour < 21 ? '🌆' : '🌙';
+                const userName = String(msg.pushName || nomAuteurMessage || auteurMessage || 'Guest').replace(/[\r\n]/g, ' ').trim().slice(0, 48) || 'Guest';
+                const uptime = formatUptime(Date.now() - (global.botStartTime || startTime));
+                const totalMemory = os.totalmem() || 1;
+                const ramPercent = Math.max(0, Math.min(100, Math.round(((totalMemory - os.freemem()) / totalMemory) * 100)));
+                const filled = Math.round(ramPercent / 10);
+                const ramBar = '▰'.repeat(filled) + '▱'.repeat(10 - filled);
+                const categoryLines = categories.map((category, index) =>
+                    `> │ ${String(index + 1).padStart(2, '0')}  ${category.name.toUpperCase()}`
+                ).join('\n');
+
+                const menuText = [
+                    `> ╭─⌈ 🔥 *${botName}*  ·  _v${botVersion}_ ⌋`,
+                    `> │ 👤 Hey *${userName}*  —  *${greetingIcon} ${greeting}*`,
+                    `> │ 📅 *${now.format('DD MMM YYYY')}*  ·  🕐 *${now.format('hh:mm A')}*`,
+                    '> │',
+                    `> │ 💬 Commands  ›  *${list.length}*`,
+                    `> │ ⏱️  Uptime    ›  *${uptime}*`,
+                    `> │ 🔑  Prefix    ›  *${prefixLabel}*`,
+                    `> │ 🛠️  Mode      ›  *${String(CONFIG.MODE || 'public').toUpperCase()}*`,
+                    `> │ 💾  RAM       ›  *${ramBar} ${ramPercent}%*`,
+                    '> │',
+                    `> │ 📋 *CATEGORIES*  ·  _reply 1–${categories.length}_`,
+                    '> │',
+                    categoryLines,
+                    `> ╰⊷ ✨ _Powered by ${ownerName}_`
+                ].join('\n');
+
+                const sent = await sock.sendMessage(from, { text: menuText }, { quoted: msg });
+                const menuSender = sender || msg.key?.participant || msg.key?.remoteJid || from;
+                rememberCategoryMenu(from, menuSender, categories, prefix, botName, ownerName, sent?.key?.id);
+                return sent;
             } catch (error) {
-
                 console.error('Menu error:', error);
-
-                await sock.sendMessage(from, {
-                    text: '❌ Error loading menu.'
-                }, { quoted: msg });
+                return sock.sendMessage(from, { text: '❌ Error loading menu.' }, { quoted: msg });
             }
         }
     },

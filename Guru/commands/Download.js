@@ -106,7 +106,7 @@ export const commands = [
         });
       }
 
-      const caption = MESSAGES.tiktok.caption.replace('{title}', response.title || 'FLASH-MD V3');
+      const caption = MESSAGES.tiktok.caption.replace('{title}', response.title || 'ULTRA GURU');
 
       if (response.video) {
         await sock.sendMessage(from, {
@@ -443,7 +443,7 @@ export const commands = [
 
         await sock.sendMessage(from, {
           video: { url: result.sd },
-          caption: '_╰►FACEBOOK VIDEO DOWNLOADED BY_ *FLASH-MD-V3*'
+          caption: '_╰►FACEBOOK VIDEO DOWNLOADED BY_ *ULTRA GURU*'
         });
       } catch (error) {
         await sock.sendMessage(from, {
@@ -637,21 +637,21 @@ export const commands = [
         if (/image\//.test(contentType)) {
           return sock.sendMessage(from, {
             image: buffer,
-            caption: '> > *POWERED BY FLASH-MD-V3*'
+            caption: '> > *POWERED BY ULTRA GURU*'
           });
         }
 
         if (/video\//.test(contentType)) {
           return sock.sendMessage(from, {
             video: buffer,
-            caption: '> > *POWERED BY FLASH-MD-V3*'
+            caption: '> > *POWERED BY ULTRA GURU*'
           });
         }
 
         if (/audio\//.test(contentType)) {
           return sock.sendMessage(from, {
             audio: buffer,
-            caption: '> > *POWERED BY FLASH-MD-V3*'
+            caption: '> > *POWERED BY ULTRA GURU*'
           });
         }
 
@@ -670,7 +670,7 @@ export const commands = [
           document: buffer,
           mimetype: contentType,
           fileName: 'fetched_content',
-          caption: '> > *POWERED BY FLASH-MD-V3*'
+          caption: '> > *POWERED BY ULTRA GURU*'
         });
       } catch (err) {
         return sock.sendMessage(from, {

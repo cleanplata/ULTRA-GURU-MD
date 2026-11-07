@@ -9,7 +9,7 @@ export const commands = [
         description: 'Get detailed information about a country',
         category: 'Search',
         execute: async ({ sock, from, text, msg, config }) => {
-            const botName = config.BOT_NAME || 'Flash-MD';
+            const botName = config.BOT_NAME || 'ULTRA GURU';
 
             if (!text || text.trim() === '') {
                 const noCountryMsg = await t(from, 'country', 'noCountry');

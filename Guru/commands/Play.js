@@ -48,7 +48,7 @@ export const commands = [
     description: 'Search and download MP3 audio from YouTube (audio only).',
     category: 'Search',
     execute: async ({ sock, from, text, msg, config }) => {
-      const botName = config.BOT_NAME || 'Flash-MD';
+      const botName = config.BOT_NAME || 'ULTRA GURU';
       const botVersion = config.BOT_VERSION || '3.0.0';
 
       if (!text) {

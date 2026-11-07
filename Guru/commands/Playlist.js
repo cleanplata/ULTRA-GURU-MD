@@ -49,7 +49,7 @@ export const commands = [
         }
 
         const { title, total, videos } = response.data;
-        const botName = config.BOT_NAME || 'FLASH-MD V3';
+        const botName = config.BOT_NAME || 'ULTRA GURU';
         const userLang = getUserLang(from);
 
         const playlistHeader = await t(from, 'playlist', 'header');

@@ -14,7 +14,7 @@ export const commands = [
     description: 'Converts text into an ATTP sticker.',
     category: 'User',
     execute: async ({ sock, from, text, msg, config }) => {
-      const botName = config.BOT_NAME || 'Flash-MD';
+      const botName = config.BOT_NAME || 'ULTRA GURU';
       if (!text) {
         const noTextMsg = await t(from, 'attp', 'noText');
         return await sock.sendMessage(from, {
@@ -71,7 +71,7 @@ export const commands = [
     description: 'Search and create stickers from Tenor GIFs.',
     category: 'Search',
     execute: async ({ sock, from, text, msg, config }) => {
-      const botName = config.BOT_NAME || 'Flash-MD';
+      const botName = config.BOT_NAME || 'ULTRA GURU';
       if (!text) {
         const noTextMsg = await t(from, 'stickersearch', 'noText');
         return await sock.sendMessage(from, {
@@ -137,7 +137,7 @@ export const commands = [
     description: 'Get the current weather for a specific location.',
     category: 'Search',
     execute: async ({ sock, from, text, msg, config }) => {
-      const botName = config.BOT_NAME || 'Flash-MD';
+      const botName = config.BOT_NAME || 'ULTRA GURU';
       if (!text) {
         const noTextMsg = await t(from, 'weather', 'noText');
         return await sock.sendMessage(from, {
@@ -223,7 +223,7 @@ export const commands = [
     description: 'Searches YouTube videos by keyword.',
     category: 'Search',
     execute: async ({ sock, from, text, msg, config }) => {
-      const botName = config.BOT_NAME || 'Flash-MD';
+      const botName = config.BOT_NAME || 'ULTRA GURU';
       if (!text) {
         const noTextMsg = await t(from, 'yts', 'noText');
         return await sock.sendMessage(from, {
@@ -294,7 +294,7 @@ export const commands = [
     description: 'Search and play MP3 music from YouTube (audio only).',
     category: 'Search',
     execute: async ({ sock, from, text, msg, config }) => {
-      const botName = config.BOT_NAME || 'Flash-MD';
+      const botName = config.BOT_NAME || 'ULTRA GURU';
       if (!text) {
         const noTextMsg = await t(from, 'ytmp3', 'noText');
         return sock.sendMessage(from, {
@@ -356,7 +356,7 @@ export const commands = [
     description: 'Downloads a YouTube video.',
     category: 'Download',
     execute: async ({ sock, from, text, msg, config }) => {
-      const botName = config.BOT_NAME || 'Flash-MD';
+      const botName = config.BOT_NAME || 'ULTRA GURU';
       if (!text) {
         const noTextMsg = await t(from, 'ytmp4', 'noText');
         return sock.sendMessage(from, {

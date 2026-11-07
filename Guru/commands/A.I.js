@@ -361,7 +361,7 @@ export const commands = [
     name: 'best-wallp',
     aliases: ['bestwal', 'best', 'bw'],
     description: 'Sends a high-quality random wallpaper.',
-    category: 'FLASH PICS',
+    category: 'ULTRA PICS',
     execute: async ({ sock, from, text, msg }) => {
       try {
         const url = await getRandomWallpaper();
@@ -385,7 +385,7 @@ export const commands = [
     name: 'random',
     aliases: [],
     description: 'Sends a random wallpaper from Unsplash.',
-    category: 'FLASH PICS',
+    category: 'ULTRA PICS',
     execute: async ({ sock, from, text, msg }) => {
       try {
         const url = await getRandomWallpaper();

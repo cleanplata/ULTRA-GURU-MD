@@ -75,7 +75,7 @@ export const MESSAGES = {
 
   alive: {
     checking: '🔄 Checking bot status...',
-    online: '🟢 *FLASH-MD-V3 IS ONLINE*',
+    online: '🟢 *ULTRA GURU IS ONLINE*',
     uptime: '*⏱️ Uptime:* {uptime}',
     ping: '*🏓 Ping:* {latency} ms',
     platform: '*🖥️ Platform:* {platform}',
@@ -99,18 +99,18 @@ export const MESSAGES = {
   playlist: {
     noQuery: '🔗 *Please provide a YouTube URL or search keywords.*\n\nExamples:\n`.playlist https://youtu.be/3RExDX07-0A`\n`.playlist sprinter`',
     noResults: '❌ *No results found.*\nPlease try different keywords or provide a YouTube URL.',
-    fetching: '⏳ *FLASH-MD V3* is fetching playlist information... Please wait.',
+    fetching: '⏳ *ULTRA GURU* is fetching playlist information... Please wait.',
     error: '❌ An error occurred while fetching the playlist. Please try again later.',
     timeout: '⏱️ *Request timed out.* The server took too long to respond. Please try again.',
     notFound: '🔍 *Playlist not found.* Please check the URL or try different keywords.',
-    header: '🎵 *FLASH-MD V3 PLAYLIST*\n\n📋 *{title}*\n📊 *Total Videos:* {total}\n\n',
+    header: '🎵 *ULTRA GURU PLAYLIST*\n\n📋 *{title}*\n📊 *Total Videos:* {total}\n\n',
     videoItem: '{number}. *{title}*\n   ⏱️ Duration: {duration}\n   🔗 {url}\n\n',
     footer: '\n_✨ Use .play <video title> to download any song from this playlist_'
   },
 
   alldl: {
     noUrl: '🔗 *Please provide a URL to download from.*',
-    caption: '*FLASH-MD*\n🔗 Downloaded from: {url}',
+    caption: '*ULTRA GURU*\n🔗 Downloaded from: {url}',
     complete: '✅ *Download complete!*',
     noMedia: '❌ No media found or invalid URL.',
     error: '⚠️ An error occurred while processing your request.'
@@ -121,8 +121,8 @@ export const MESSAGES = {
     searching: '🔍 Searching for the APK, please wait...',
     notFound: '❌ No APKs found for "{query}".',
     error: '❌ Failed to retrieve the download link.',
-    caption: '*📥 APK DOWNLOADER*\n\n*📌 App:* {name}\n*📎 Type:* APK File\n*⚙️ Powered by:* FLASH-MD-V3',
-    complete: '✅ Successfully fetched and sent APK for *{name}*.\n\n_Enjoy using the app. Powered by FLASH-MD-V3_'
+    caption: '*📥 APK DOWNLOADER*\n\n*📌 App:* {name}\n*📎 Type:* APK File\n*⚙️ Powered by:* ULTRA GURU',
+    complete: '✅ Successfully fetched and sent APK for *{name}*.\n\n_Enjoy using the app. Powered by ULTRA GURU_'
   },
 
   attp: {
@@ -206,7 +206,7 @@ export const MESSAGES = {
     noUrl: 'Insert a public facebook video link!',
     error: 'try fb2 on this link',
     caption: '*Title:* {title}\n\n*Direct Link:* {url}',
-    videoCaption: '_╰►FB VIDEO DOWNLOADED BY_ *FLASH-MD-V3*'
+    videoCaption: '_╰►FB VIDEO DOWNLOADED BY_ *ULTRA GURU*'
   },
 
   fetch: {
@@ -383,7 +383,7 @@ export const MESSAGES = {
 
   imageDl: {
     noUrl: 'Please provide a valid image URL.',
-    caption: '📸 *FLASH-MD-V3* Image Downloader (High Quality)',
+    caption: '📸 *ULTRA GURU* Image Downloader (High Quality)',
     success: '✅ Image downloaded successfully!',
     noImage: '❌ No valid high-quality image found.',
     error: 'An error occurred while processing the image request. Please try again.'
@@ -393,7 +393,7 @@ export const MESSAGES = {
     noPrompt: '🧠 *What do you want to imagine?*\n\n_Example:_ `.imagine a futuristic city at night`',
     generating: '🎨 *Generating image... Please wait.*',
     noImage: '⚠️ Sorry, I could not generate the image. Try again later.',
-    caption: '_✨ Created by Flash-Md-V3_'
+    caption: '_✨ Created by ULTRA GURU_'
   },
 
   imdb: {
@@ -405,7 +405,7 @@ export const MESSAGES = {
   insta: {
     noUrl: '🔗 *Please provide a valid Instagram URL.*\n\nExample: `!insta https://www.instagram.com/reel/xyz123/`',
     error: '❌ *Failed to get media:*\n{error}',
-    caption: '_*✨ Downloaded by Flash-Md-V3*_'
+    caption: '_*✨ Downloaded by ULTRA GURU*_'
   },
 
   llama: {
@@ -417,7 +417,7 @@ export const MESSAGES = {
   logo: {
     noText: '*Example:* .{type} YourText',
     generating: '*Generating your logo... Please wait.*',
-    caption: '*FLASH-MD V3 - Logo Generator*',
+    caption: '*ULTRA GURU - Logo Generator*',
     error: 'An error occurred while generating your logo. Please try again later.'
   },
 
@@ -444,7 +444,7 @@ export const MESSAGES = {
     noUrl: 'Please insert a MediaFire file link.',
     fetching: 'Fetching your file from MediaFire, please wait...',
     error: 'Failed to retrieve file. Please check the link and try again.',
-    caption: '╰► *MediaFire Download Completed!*\nDownloaded by: *FLASH-MD-V3*\n\n📂 *Name:* {name}\n📦 *Size:* {size}\n📄 *Type:* {type}\n📅 *Uploaded:* {uploaded}'
+    caption: '╰► *MediaFire Download Completed!*\nDownloaded by: *ULTRA GURU*\n\n📂 *Name:* {name}\n📦 *Size:* {size}\n📄 *Type:* {type}\n📅 *Uploaded:* {uploaded}'
   },
 
   npm: {
@@ -459,7 +459,7 @@ export const MESSAGES = {
     noResults: '❌ *No results found for your query.*\nPlease try a different song name.',
     fetching: '⏳ *Fetching your song...* Please wait.',
     noAudio: '❌ *No audio found.*\nThe video might not have audio or is unavailable.',
-    info: '*🎵 FLASH-MD V3 MUSIC PLAYER*\n\n╭─❏ *Title:* {title}\n│ *Channel:* {channel}\n│ *Quality:* {quality}p\n╰─────────────\n\n_✨ Downloaded successfully!_',
+    info: '*🎵 ULTRA GURU MUSIC PLAYER*\n\n╭─❏ *Title:* {title}\n│ *Channel:* {channel}\n│ *Quality:* {quality}p\n╰─────────────\n\n_✨ Downloaded successfully!_',
     timeout: '⏱️ *Request timed out.* The server took too long to respond. Please try again.',
     error: '❌ An error occurred while processing your request.\nPlease try again later.'
   },
@@ -469,10 +469,10 @@ export const MESSAGES = {
   },
 
   posts: {
-    noUsername: '📸 *Please provide an Instagram username.*\n\nExample: `!posts france.king1`',
+    noUsername: '📸 *Please provide an Instagram username.*\n\nExample: `!posts example_user`',
     noPosts: '❌ *No posts found for @{username}.*\nMaybe the account is private or invalid.',
-    caption: '📸 _✨ Downloaded by Flash-Md-V3_',
-    videoCaption: '🎥 _✨ Downloaded by Flash-Md-V3_'
+    caption: '📸 _✨ Downloaded by ULTRA GURU_',
+    videoCaption: '🎥 _✨ Downloaded by ULTRA GURU_'
   },
 
   quote: {
@@ -524,9 +524,9 @@ export const MESSAGES = {
   },
 
   story: {
-    noUsername: '📖 *Provide a username to fetch stories.*\n\nExample: `story france.king1`',
+    noUsername: '📖 *Provide a username to fetch stories.*\n\nExample: `story example_user`',
     noStories: '⚠️ No stories found for *{username}*.',
-    caption: '📖 *{username}* - Story {current} of {total}\n\n_*✨Downloaded by Flash-Md-V3*_',
+    caption: '📖 *{username}* - Story {current} of {total}\n\n_*✨Downloaded by ULTRA GURU*_',
     unknown: '⚠️ Unknown media type:\n{url}',
     error: '❌ Failed to fetch stories for *{username}*. Try again later.'
   },
@@ -590,7 +590,7 @@ export const MESSAGES = {
     invalidUrl: '❌ *Invalid Twitter/X URL.*\nPlease provide a valid tweet link.',
     fetching: '⏳ *Fetching Twitter/X video...* Please wait.',
     noVideo: '❌ *No downloadable video found.*\nThe tweet might not contain a video or is private.',
-    caption: '🎥 *FLASH-MD V3 X DOWNLOADER*\n\n📦 *Quality:* {quality}\n\n_✨ Downloaded successfully!_',
+    caption: '🎥 *ULTRA GURU X DOWNLOADER*\n\n📦 *Quality:* {quality}\n\n_✨ Downloaded successfully!_',
     timeout: '⏱️ *Request timed out.* The server took too long to respond. Please try again.',
     notFound: '🔍 *Video not found.* The tweet might have been deleted or is private.',
     apiError: '⚠️ *API service unavailable.* Please try again later.',
@@ -621,7 +621,7 @@ export const MESSAGES = {
     whoisName: 'Name',
     whoisSetOn: 'Set on',
     whoisSetAt: 'Set at',
-    whoisFooter: 'FLASH-MD V-3.0.0',
+    whoisFooter: 'ULTRA GURU V-3.0.0',
     mygroupsHeader: 'GROUPS\n\n',
     mygroupsItem: '{subject}\n{count} members\n{id}\n\n',
     mygroupsError: 'Failed to fetch groups',
@@ -631,7 +631,7 @@ export const MESSAGES = {
   videoDl: {
     noUrl: 'Please provide a valid video URL.',
     noVideo: '❌ No valid video found.',
-    caption: '🎥 *FLASH-MD-V3* Video Downloader (High Quality)',
+    caption: '🎥 *ULTRA GURU* Video Downloader (High Quality)',
     complete: '✅ Video downloaded successfully!',
     error: 'An error occurred while processing the video request. Please try again.'
   },
@@ -645,7 +645,7 @@ export const MESSAGES = {
 
   wallpaper: {
     error: "Couldn't fetch wallpaper. Try again later.",
-    caption: "*POWERED BY FLASH-MD-V3*"
+    caption: "*POWERED BY ULTRA GURU*"
   },
 
   weather: {
@@ -756,11 +756,11 @@ export const MESSAGES = {
       error: 'There was an error while archiving the chat. Please try again.'
     },
     vv: {
-      caption: '*REVEALED BY FLASH-MD*'
+      caption: '*REVEALED BY ULTRA GURU*'
     },
     details: {
       noReply: 'Please reply to a message to view its raw details.',
-      result: '*FLASH-MD Message Details:*\n```\n{part}\n```',
+      result: '*ULTRA GURU Message Details:*\n```\n{part}\n```',
       error: 'Failed to read quoted message.'
     },
     blocklist: {
@@ -782,7 +782,7 @@ export const MESSAGES = {
     noText: 'Please provide a song name or YouTube Link.',
     noResults: 'No results found for your query.',
     noLink: 'Failed to retrieve the MP3 download link.',
-    caption: 'FLASH-MD V3',
+    caption: 'ULTRA GURU',
     error: 'An error occurred while processing your request.'
   },
 
@@ -790,7 +790,7 @@ export const MESSAGES = {
     noText: 'Please provide a video name or YouTube URL.',
     noResults: 'No results found.',
     noLink: 'Failed to retrieve the MP4 download link.',
-    caption: '*FLASH-MD V3 - MP4*',
+    caption: '*ULTRA GURU - MP4*',
     error: 'An error occurred while downloading MP4.'
   },
 
@@ -963,7 +963,7 @@ export const MESSAGES = {
   },
 
   categories: {
-    header: '*FLASH-MD-V3 CATEGORIES*',
+    header: '*ULTRA GURU CATEGORIES*',
     use: 'Use:',
     general: 'general',
     whatsapp: 'whatsapp',
@@ -1063,11 +1063,11 @@ export const MESSAGES = {
   },
 
   ping: {
-    pong: '🏓 Pong!\n⏱️ *_Flash-MD-V3 Speed: {latency} ms_*'
+    pong: '🏓 Pong!\n⏱️ *_ULTRA GURU Speed: {latency} ms_*'
   },
 
   uptime: {
-    uptime: '*_FLASH-MD-V3 UPTIME: {uptime}_*'
+    uptime: '*_ULTRA GURU UPTIME: {uptime}_*'
   },
 
   repo: {

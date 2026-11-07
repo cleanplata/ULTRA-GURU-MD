@@ -1,30 +1,32 @@
 import CONFIG from '../../Guru Tech/config.js'
-import axios from 'axios';
-import { t, translate, translateAIResponse, getUserLang } from '../france/translator.js';
+import axios from 'axios'
 
 export const commands = [
   {
     name: 'repo',
     aliases: ['sc', 'script'],
-    description: 'Sends the official GitHub repository and stats for FLASH-MD',
+    description: 'Show the ULTRA GURU GitHub repository and its current stats.',
     execute: async ({ sock, from, config, msg }) => {
-      const botName = config.BOT_NAME || 'Flash-MD';
-      const botVersion = config.BOT_VERSION || '3.0.0';
-      const repoApiUrl = 'https://api.github.com/repos/franceking1/Flash-Md-V3';
-      const repoUrl = 'https://flash-vercel-iota.vercel.app';
+      const currentConfig = config || CONFIG
+      const botName = currentConfig.BOT_NAME || 'ULTRA GURU'
+      const botVersion = currentConfig.BOT_VERSION || '3.0.0'
+      const ownerName = currentConfig.OWNER_NAME || 'GuruTech'
+      const repository = String(currentConfig.GITHUB_REPO || 'cleanplata/ULTRA-GURU-MD')
+        .replace(/^https?:\/\/github\.com\//i, '')
+        .replace(/\.git$/i, '')
+        .replace(/\/+$/, '')
+      const repoApiUrl = `https://api.github.com/repos/${repository}`
+      const repoUrl = `https://github.com/${repository}`
 
       try {
-        const { data } = await axios.get(repoApiUrl);
+        const { data } = await axios.get(repoApiUrl)
+        const stars = (data.stargazers_count || 0).toLocaleString()
+        const forks = (data.forks_count || 0).toLocaleString()
+        const watchers = (data.subscribers_count || data.watchers_count || 0).toLocaleString()
+        const createdAt = data.created_at ? new Date(data.created_at).toLocaleDateString('en-GB') : 'N/A'
+        const lastUpdated = data.pushed_at ? new Date(data.pushed_at).toLocaleDateString('en-GB') : 'N/A'
 
-        const stars = data.stargazers_count.toLocaleString();
-        const forks = data.forks_count.toLocaleString();
-        const watchers = data.watchers_count.toLocaleString();
-        const createdAt = new Date(data.created_at).toLocaleDateString('en-GB');
-        const lastUpdated = new Date(data.pushed_at).toLocaleDateString('en-GB');
-
-        const repoInfo = `*🤖 ${botName.toUpperCase()}*
-
-A powerful, open-source WhatsApp bot built for speed, reliability, and ease of use.
+        const repoInfo = `*🤖 ${botName.toUpperCase()}* · _v${botVersion}_
 
 *📂 GitHub Repository:*
 ${repoUrl}
@@ -36,10 +38,7 @@ ${repoUrl}
 📅 *Created:* ${createdAt}
 ♻️ *Last Updated:* ${lastUpdated}
 
-*⚡ Powered by France King*
-
-_Star ⭐ the repository if you like the bot and want to support future development!_
-_Don't forget to fork 🍴 and watch 👀 for updates!_`;
+⚡ *Powered by ${ownerName}*`
 
         await sock.sendMessage(from, {
           text: repoInfo,
@@ -52,29 +51,12 @@ _Don't forget to fork 🍴 and watch 👀 for updates!_`;
               serverMessageId: -1
             }
           }
-        }, { quoted: msg });
-
+        }, { quoted: msg })
       } catch (error) {
-        console.error('GitHub Repo Error:', error.message);
-        const errorMsg = `❌ *Error fetching repository stats*
-
-Could not retrieve FLASH-MD repository information at this time.
-
-*⚡ Powered by France King*`;
-
-        await sock.sendMessage(from, {
-          text: errorMsg,
-          contextInfo: {
-            forwardingScore: 1,
-            isForwarded: true,
-            forwardedNewsletterMessageInfo: {
-              newsletterJid: CONFIG.CHANNEL_JID,
-              newsletterName: botName,
-              serverMessageId: -1
-            }
-          }
-        }, { quoted: msg });
+        console.error('Repository stats error:', error.message)
+        const errorMsg = `❌ *${botName} repository stats are unavailable right now.*\n\nRepository: ${repoUrl}\n\n⚡ *Powered by ${ownerName}*`
+        await sock.sendMessage(from, { text: errorMsg }, { quoted: msg })
       }
     }
   }
-];
+]

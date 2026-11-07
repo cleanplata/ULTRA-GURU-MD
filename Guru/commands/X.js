@@ -91,7 +91,7 @@ export const commands = [
             isForwarded: true,
             forwardedNewsletterMessageInfo: {
               newsletterJid: CONFIG.CHANNEL_JID,
-              newsletterName: config.BOT_NAME || 'Flash-MD',
+              newsletterName: config.BOT_NAME || 'ULTRA GURU',
               serverMessageId: -1
             }
           }

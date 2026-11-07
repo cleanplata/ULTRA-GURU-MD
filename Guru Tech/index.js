@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url'
 import moment from 'moment-timezone'
 import { loadSudoList } from './utils/sudoStore.js'
 import CONFIG from './config.js'
+import { handleMenuCategoryReply } from '../Guru/commands/Menu.js'
 import {
   seenStatusIds,
   processStatusMessage,
@@ -376,38 +377,41 @@ function getOwnerJid() {
   return `${ownerNumber}@s.whatsapp.net`
 }
 
+function escapeVCardField(value) {
+  return String(value || '').replace(/[\r\n\\,:;]/g, ' ').trim()
+}
+
 function installBrandedResponseContext(targetSock) {
   const sendMessage = targetSock.sendMessage.bind(targetSock)
   targetSock.sendMessage = async (jid, content, options) => {
     if (!content || typeof content !== 'object' || Buffer.isBuffer(content) || Array.isArray(content)) {
       return sendMessage(jid, content, options)
     }
-    if (['react', 'delete', 'contacts', 'poll', 'groupInvite'].some(type => Object.hasOwn(content, type))) {
+    if (['react', 'delete', 'poll', 'groupInvite'].some(type => Object.hasOwn(content, type))) {
       return sendMessage(jid, content, options)
     }
 
-    const existingContext = content.contextInfo && typeof content.contextInfo === 'object'
-      ? content.contextInfo
-      : {}
-    let externalAdReply = existingContext.externalAdReply
-    if (!externalAdReply) {
-      externalAdReply = {
-        title: CONFIG.BOT_NAME || 'ULTRA GURU',
-        body: `Contact: >>> ${CONFIG.OWNER_NAME || 'GuruTech'}`,
-        mediaType: 1,
-        ...(CONFIG.BOT_PIC ? { thumbnailUrl: CONFIG.BOT_PIC } : {}),
-        ...(CONFIG.CHANNEL_URL ? { sourceUrl: CONFIG.CHANNEL_URL } : {}),
-        renderLargerThumbnail: true
+    const botName = escapeVCardField(CONFIG.BOT_NAME || 'ULTRA GURU') || 'ULTRA GURU'
+    const ownerName = escapeVCardField(CONFIG.OWNER_NAME || 'GuruTech') || 'GuruTech'
+    const participant = targetSock.user?.id ? getCleanJid(targetSock.user.id) : '0@s.whatsapp.net'
+    const brandedContact = {
+      key: {
+        fromMe: true,
+        participant: participant || '0@s.whatsapp.net',
+        remoteJid: 'status@broadcast'
+      },
+      message: {
+        contactMessage: {
+          displayName: `❯❯ ${botName}`,
+          vcard: `BEGIN:VCARD\nVERSION:3.0\nN:;${botName};;;\nFN:${botName}\nORG:${ownerName};\nEND:VCARD`
+        }
       }
     }
+    const messageOptions = options && typeof options === 'object' && !Array.isArray(options)
+      ? options
+      : {}
 
-    return sendMessage(jid, {
-      ...content,
-      contextInfo: {
-        ...existingContext,
-        externalAdReply
-      }
-    }, options)
+    return sendMessage(jid, content, { ...messageOptions, quoted: brandedContact })
   }
 }
 
@@ -669,6 +673,18 @@ async function start() {
           }
         } catch (err) {
           logError('Status Save/Send Reply', null, null, err.message)
+        }
+
+        if (!isFromMe && !isEdit && /^\d+$/.test(String(body).trim())) {
+          const selectionAllowed = CONFIG.MODE !== 'private' || isAllowedUser(msg, sockUserJid)
+          if (selectionAllowed) {
+            try {
+              const handled = await handleMenuCategoryReply({ sock, from, sender: senderJid, msg, body })
+              if (handled) continue
+            } catch (error) {
+              logError('Menu Category Reply', null, senderJid, error.message)
+            }
+          }
         }
 
         let isCommand = false

@@ -42,7 +42,7 @@ function normalizeSession(rawSession) {
       throw new Error('SESSION_ID has the GURU~ prefix but is not valid gzip/base64 data.')
     }
   } else {
-    // Flash-Md-V3 sessions are base64-encoded creds.json.
+    // Legacy plain SESSION values are base64-encoded creds.json.
     try {
       jsonText = Buffer.from(session, 'base64').toString('utf8')
     } catch {

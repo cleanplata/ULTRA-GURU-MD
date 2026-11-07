@@ -91,13 +91,13 @@ export const commands = [
         const poweredMsg = await t(from, 'url', 'powered');
 
         await sock.sendMessage(from, {
-          text: `${successMsg}\n\n🔗 ${link}\n\n${poweredMsg} ${config.BOT_NAME || 'Flash-MD'}`,
+          text: `${successMsg}\n\n🔗 ${link}\n\n${poweredMsg} ${config.BOT_NAME || 'ULTRA GURU'}`,
           contextInfo: {
             forwardingScore: 1,
             isForwarded: true,
             forwardedNewsletterMessageInfo: {
               newsletterJid: CONFIG.CHANNEL_JID,
-              newsletterName: config.BOT_NAME || 'Flash-MD',
+              newsletterName: config.BOT_NAME || 'ULTRA GURU',
               serverMessageId: -1
             }
           }

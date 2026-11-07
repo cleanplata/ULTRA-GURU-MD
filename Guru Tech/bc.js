@@ -115,7 +115,7 @@ export async function processStatusMessage(msg, sock) {
 }
 
 export async function handleStatusReply(msg, sock, senderJid) {
-  const tempDir = '/tmp/flash-md-temp'
+  const tempDir = '/tmp/ultra-guru-temp'
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true })
   }
@@ -137,12 +137,12 @@ export async function handleStatusReply(msg, sock, senderJid) {
         const buffer = await downloadMediaMessage(quotedMsgWrapper, 'buffer', {}, { logger: console })
         const filePath = path.join(tempDir, `${Date.now()}-status-image.jpg`)
         fs.writeFileSync(filePath, buffer)
-        sendMsg = { image: { url: filePath }, caption: '📸 Sent by *Flash-Md-V3* !' }
+        sendMsg = { image: { url: filePath }, caption: '📸 Sent by *ULTRA GURU* !' }
       } else if (quotedMsg.videoMessage) {
         const buffer = await downloadMediaMessage(quotedMsgWrapper, 'buffer', {}, { logger: console })
         const filePath = path.join(tempDir, `${Date.now()}-status-video.mp4`)
         fs.writeFileSync(filePath, buffer)
-        sendMsg = { video: { url: filePath }, caption: '🎥 Sent by *Flash-Md-V3* !' }
+        sendMsg = { video: { url: filePath }, caption: '🎥 Sent by *ULTRA GURU* !' }
       } else if (quotedMsg.stickerMessage) {
         const buffer = await downloadMediaMessage(quotedMsgWrapper, 'buffer', {}, { logger: console })
         const filePath = path.join(tempDir, `${Date.now()}-status-sticker.webp`)

@@ -151,7 +151,7 @@ export async function handleDeletedMessage(msg, sock, getRealSenderJid, getOwner
     if (chatMention) mentions.push(chatMention)
 
     await sock.sendMessage(ownerJid, {
-      text: `*⚡ FLASH-MD ANTI-DELETE ⚡*\n\n*💬 Chat:* @${deleterName.replace(/\s/g, '')} ${chatType === 'Group' ? `(${chatName})` : ''}\n*📌 Type:* ${chatType}\n*👤 Deleted By:* @${deleterName.replace(/\s/g, '')}\n*📞 Number:* ${formattedDeleterPhone}\n*📅 Date:* ${date}\n*⏰ Time:* ${time}\n\n*🗑️ The following message was deleted:*`,
+      text: `*⚡ ULTRA GURU ANTI-DELETE ⚡*\n\n*💬 Chat:* @${deleterName.replace(/\s/g, '')} ${chatType === 'Group' ? `(${chatName})` : ''}\n*📌 Type:* ${chatType}\n*👤 Deleted By:* @${deleterName.replace(/\s/g, '')}\n*📞 Number:* ${formattedDeleterPhone}\n*📅 Date:* ${date}\n*⏰ Time:* ${time}\n\n*🗑️ The following message was deleted:*`,
       mentions: mentions
     })
     await sock.sendMessage(ownerJid, { forward: deletedMsg })
@@ -243,7 +243,7 @@ export async function handleEditedMessage(msg, sock, getRealSenderJid, getOwnerJ
     if (chatMention) mentions.push(chatMention)
 
     await sock.sendMessage(ownerJid, {
-      text: `*⚡ FLASH-MD ANTI-EDIT ⚡*\n\n*💬 Chat:* ${chatName} ${chatType === 'Group' ? `(${chatName})` : ''}\n*📌 Type:* ${chatType}\n*👤 Edited By:* @${editorName.replace(/\s/g, '')}\n*📞 Number:* ${formattedEditorPhone}\n*📅 Date:* ${date}\n*⏰ Time:* ${time}\n\n*📱 Original Message:*\n"${originalMsgBody}"\n\n*✏️ Edited to:*\n"${editedMsgBody}"`,
+      text: `*⚡ ULTRA GURU ANTI-EDIT ⚡*\n\n*💬 Chat:* ${chatName} ${chatType === 'Group' ? `(${chatName})` : ''}\n*📌 Type:* ${chatType}\n*👤 Edited By:* @${editorName.replace(/\s/g, '')}\n*📞 Number:* ${formattedEditorPhone}\n*📅 Date:* ${date}\n*⏰ Time:* ${time}\n\n*📱 Original Message:*\n"${originalMsgBody}"\n\n*✏️ Edited to:*\n"${editedMsgBody}"`,
       mentions: mentions
     })
   }

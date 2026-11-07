@@ -85,13 +85,15 @@ export function getSenderId(msg) {
   return (msg.key?.participant || msg.key?.remoteJid || '0@s.whatsapp.net').split('@')[0];
 }
 
-export function createQuotedContact(senderId) {
+export function createQuotedContact() {
+  const botName = String(ROOT_CONFIG.BOT_NAME || 'ULTRA GURU').replace(/[\r\n\\,:;]/g, ' ').trim();
+  const ownerName = String(ROOT_CONFIG.OWNER_NAME || 'GuruTech').replace(/[\r\n\\,:;]/g, ' ').trim();
   return {
-    key: { fromMe: false, participant: '0@s.whatsapp.net', remoteJid: 'status@broadcast' },
+    key: { fromMe: true, participant: '0@s.whatsapp.net', remoteJid: 'status@broadcast' },
     message: {
       contactMessage: {
-        displayName: 'FLASH-MD-V3',
-        vcard: `BEGIN:VCARD\nVERSION:3.0\nN:;a,;;;\nFN:FLASH-MD-V3\nitem1.TEL;waid=${senderId}:${senderId}\nitem1.X-ABLabel:Ponsel\nEND:VCARD`,
+        displayName: `❯❯ ${botName}`,
+        vcard: ['BEGIN:VCARD', 'VERSION:3.0', `N:;${botName};;;`, `FN:${botName}`, `ORG:${ownerName};`, 'END:VCARD'].join('\n'),
       },
     },
   };
@@ -272,7 +274,7 @@ export async function downloadContentFromMessage(message, type) {
 
 export const fetchRepoStats = async () => {
   try {
-    const response = await axios.get('https://api.github.com/repos/franceking1/Flash-Md-V3');
+    const response = await axios.get(`https://api.github.com/repos/${ROOT_CONFIG.GITHUB_REPO || 'cleanplata/ULTRA-GURU-MD'}`);
     const { forks_count, stargazers_count, watchers_count, created_at, pushed_at } = response.data;
     return {
       forks: forks_count || 0,

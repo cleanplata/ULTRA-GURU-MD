@@ -117,7 +117,7 @@ export const commands = [
           try {
             const res = await fetch('https://nekos.life/api/v2/fact');
             const data = await res.json();
-            const bio = `FLASH-MD: ${data.fact}`;
+            const bio = `ULTRA GURU: ${data.fact}`;
             await sock.query({
               tag: 'iq',
               attrs: { to: S_WHATSAPP_NET, type: 'set', xmlns: 'status' },
