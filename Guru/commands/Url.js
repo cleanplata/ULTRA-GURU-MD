@@ -1,4 +1,4 @@
-import CONFIG from '../config.js'
+import CONFIG from '../../Guru Tech/config.js'
 import axios from 'axios';
 import FormData from 'form-data';
 import fs from 'fs-extra';

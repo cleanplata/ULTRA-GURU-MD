@@ -2,6 +2,12 @@
 
 This repository contains the bot code from the supplied Flash-Md-V3 archive, adapted for the existing `cleanplata/ULTRA-GURU-MD` deployment. Runtime defaults retain the current bot name, owner name, profile image, WhatsApp channel JID/link, and GitHub repository. Existing Heroku config vars remain in place when the source is updated.
 
+## Folder layout
+
+- `Guru Tech/` contains the bot runtime, configuration, startup helpers, and utility modules.
+- `Guru/` contains the command modules and shared feature/translation code.
+- The repository root keeps only the Heroku/npm manifests, environment sample, and documentation needed for deployment.
+
 ## WhatsApp session and LID
 
 A WhatsApp session credential is required to connect the bot. Set **one** of `SESSION` or `SESSION_ID` in Heroku Config Vars. The bot accepts both formats:
@@ -15,7 +21,7 @@ The bot converts either accepted value to the local Baileys credential file at s
 
 ## Heroku
 
-The included `Procfile` starts the bot with `node index.js`. Existing Heroku config vars persist when Heroku deploys a new commit. Check that either `SESSION_ID` or `SESSION` is configured before restarting the dyno. Useful optional vars include `OWNER_NAME`, `BOT_NAME`, `BOT_PIC`, `CHANNEL_JID`, and `CHANNEL_URL`; defaults are provided in `config.js` and `app.json`.
+The included `Procfile` starts the bot with `node "Guru Tech/index.js"`. Existing Heroku config vars persist when Heroku deploys a new commit. Check that either `SESSION_ID` or `SESSION` is configured before restarting the dyno. Useful optional vars include `OWNER_NAME`, `BOT_NAME`, `BOT_PIC`, `CHANNEL_JID`, and `CHANNEL_URL`; defaults are provided in `Guru Tech/config.js` and `app.json`.
 
 The root route (`/`) confirms the Node process is responding. `/health` reports the WhatsApp connection state (`503` while disconnected, `200` after it connects). In Heroku logs, look for `[AUTH] Session format accepted: ...` followed by `Connected to WhatsApp` to confirm session decoding and connection. A deployment can succeed while WhatsApp authentication still fails, so both log messages matter.
 

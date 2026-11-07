@@ -3,7 +3,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import { Jimp } from 'jimp';
 import { MESSAGES } from '../france/index.js';
-import CONFIG from '../config.js';
+import CONFIG from '../../Guru Tech/config.js';
 import { t, translate, translateAIResponse, getUserLang } from '../france/translator.js';
 
 const S_WHATSAPP_NET = 's.whatsapp.net';

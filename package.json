@@ -2,11 +2,11 @@
   "name": "ultra-guru-md",
   "version": "3.0.0",
   "description": "ULTRA GURU WhatsApp Multi-Device Bot",
-  "main": "index.js",
+  "main": "Guru Tech/index.js",
   "type": "module",
   "scripts": {
-    "start": "node flash.js && node --loader ./preload.js index.js",
-    "dev": "node index.js",
+    "start": "node \"Guru Tech/flash.js\" && node --loader \"./Guru Tech/preload.js\" \"Guru Tech/index.js\"",
+    "dev": "node \"Guru Tech/index.js\"",
     "postinstall": "PUPPETEER_SKIP_DOWNLOAD=true npm rebuild sharp --force"
   },
   "engines": {

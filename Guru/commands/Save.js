@@ -1,5 +1,5 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import CONFIG from '../config.js';
+import CONFIG from '../../Guru Tech/config.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';

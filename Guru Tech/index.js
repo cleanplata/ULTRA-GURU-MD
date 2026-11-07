@@ -198,7 +198,7 @@ if (!fs.existsSync(CREDS_PATH)) {
 }
 if (CONFIG.SESSION) console.log(`[AUTH] Session format accepted: ${CONFIG.SESSION_FORMAT}`)
 
-const commandsDir = path.join(__dirname, 'commands')
+const commandsDir = path.join(__dirname, '..', 'Guru', 'commands')
 const commands = new Map()
 const commandAliases = new Map()
 

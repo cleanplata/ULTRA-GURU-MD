@@ -1,4 +1,4 @@
-import CONFIG from '../config.js'
+import CONFIG from '../../Guru Tech/config.js'
 import os from 'os';
 import moment from 'moment-timezone';
 import { detectPlatform, formatUptime, MESSAGES } from '../france/index.js';

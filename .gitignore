@@ -8,3 +8,8 @@ sudo.json
 *.log
 logs/
 .tmp/
+**/auth/
+**/auth_info_baileys/
+data/
+temp/
+tmp/

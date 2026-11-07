@@ -18,7 +18,7 @@ try {
     ];
 
     for (const sharpPath of sharpPaths) {
-        const fullPath = path.join(__dirname, sharpPath);
+        const fullPath = path.join(__dirname, '..', sharpPath);
         if (fs.existsSync(fullPath)) {
             fs.rmSync(fullPath, { recursive: true, force: true });
         }

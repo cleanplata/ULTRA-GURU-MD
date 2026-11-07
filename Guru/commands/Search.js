@@ -1,4 +1,4 @@
-import CONFIG from '../config.js'
+import CONFIG from '../../Guru Tech/config.js'
 import axios from 'axios';
 import { Sticker, StickerTypes } from 'wa-sticker-formatter';
 import yts from 'yt-search';

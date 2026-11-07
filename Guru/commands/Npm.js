@@ -1,4 +1,4 @@
-import CONFIG from '../config.js'
+import CONFIG from '../../Guru Tech/config.js'
 import { npmSearch, formatDate, MESSAGES } from '../france/index.js';
 import { t, translate, translateAIResponse, getUserLang } from '../france/translator.js';
 

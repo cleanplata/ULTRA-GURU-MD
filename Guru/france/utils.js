@@ -1,4 +1,4 @@
-import ROOT_CONFIG from '../config.js';
+import ROOT_CONFIG from '../../Guru Tech/config.js';
 import now from 'performance-now';
 import { LIMITS, MESSAGES } from './config.js';
 import { downloadMediaMessage } from '@whiskeysockets/baileys';

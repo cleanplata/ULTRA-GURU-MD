@@ -15,7 +15,7 @@ import {
 
 import axios from 'axios';
 import { Sticker, StickerTypes } from 'wa-sticker-formatter';
-import CONFIG from '../config.js';
+import CONFIG from '../../Guru Tech/config.js';
 
 export const commands = [
   {

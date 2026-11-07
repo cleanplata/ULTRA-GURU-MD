@@ -1,4 +1,4 @@
-import CONFIG from '../config.js'
+import CONFIG from '../../Guru Tech/config.js'
 import acrcloud from 'acrcloud';
 import yts from 'yt-search';
 import fs from 'fs';

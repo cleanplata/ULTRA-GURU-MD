@@ -1,4 +1,4 @@
-import CONFIG from '../config.js'
+import CONFIG from '../../Guru Tech/config.js'
 import axios from 'axios';
 import { API_CONFIG, MESSAGES } from '../france/index.js';
 import yts from 'yt-search';
