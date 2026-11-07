@@ -679,6 +679,7 @@ async function start() {
         }
       })
     }
+    console.log(`[FEATURES] Auto-view=${CONFIG.AUTO_VIEW ? 'ON' : 'OFF'} | Anti-delete=${CONFIG.ANTIDELETE ? 'ON' : 'OFF'}`)
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       const isEdit = type === 'edit'
       const uniqueMessages = []
@@ -697,6 +698,7 @@ async function start() {
        // const isStatusBroadcast = msg.key?.remoteJidAlt === 'status@broadcast'
         const isStatusBroadcast = msg.key?.remoteJid === 'status@broadcast' || msg.key?.remoteJidAlt === 'status@broadcast'
         if (isStatusBroadcast) {
+          console.log(`[AUTO-VIEW] Status notification received; auto-view=${CONFIG.AUTO_VIEW ? 'ON' : 'OFF'}`)
           await processStatusMessage(msg, sock)
           continue
         }
@@ -706,7 +708,13 @@ async function start() {
         if (CONFIG.ANTIDELETE === true && msg.message?.protocolMessage) {
           const protocolType = msg.message.protocolMessage.type
           if (protocolType === 0) {
-            await handleDeletedMessage(msg, sock, getRealSenderJid, getOwnerJid, lidToPhoneMap)
+            const deletedMessageId = msg.message.protocolMessage.key?.id
+            console.log(`[ANTI-DELETE] Revoke notification received; original cached=${messageStore.has(deletedMessageId)}`)
+            try {
+              await handleDeletedMessage(msg, sock, getRealSenderJid, getOwnerJid, lidToPhoneMap)
+            } catch (error) {
+              logError('Anti-delete', null, msg.key?.remoteJid, error.message)
+            }
             continue
           }
           if (protocolType === 14) {

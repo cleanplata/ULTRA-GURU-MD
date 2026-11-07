@@ -103,11 +103,13 @@ export async function processStatusMessage(msg, sock) {
   const id = msg.key.id
   if (seenStatusIds.has(id)) return
 
-  const rawParticipant = msg.participant || msg.key.participantPn || msg.key.participant
-  const isLid = msg.key.addressingMode === 'lid' || String(rawParticipant || '').endsWith('@lid')
-  const resolvedParticipant = isLid && msg.key.remoteJidAlt && msg.key.remoteJidAlt !== 'status@broadcast'
-    ? msg.key.remoteJidAlt
-    : rawParticipant
+  const resolvedParticipant = [
+    msg.key.participantPn,
+    msg.key.participantAlt,
+    msg.participant,
+    msg.key.participant,
+    msg.key.remoteJidAlt
+  ].find(jid => typeof jid === 'string' && jid && jid !== 'status@broadcast')
   const resolvedKey = {
     ...msg.key,
     remoteJid: 'status@broadcast',
@@ -137,7 +139,9 @@ export async function processStatusMessage(msg, sock) {
       statusType = 'document'
     }
 
-    if (CONFIG.AUTO_VIEW === true) {
+    if (CONFIG.AUTO_VIEW === true && !resolvedParticipant) {
+      console.warn(`⚠️ Status ${id} arrived without a participant JID; skipping read receipt.`)
+    } else if (CONFIG.AUTO_VIEW === true) {
       let viewError
       for (let attempt = 1; attempt <= STATUS_VIEW_MAX_RETRIES; attempt++) {
         try {
@@ -157,7 +161,7 @@ export async function processStatusMessage(msg, sock) {
       if (viewError) console.error(`❌ Failed to view status ${id} after ${STATUS_VIEW_MAX_RETRIES} attempts: ${viewError.message}`)
     }
 
-    if (CONFIG.AUTO_LIKE === true) {
+    if (CONFIG.AUTO_LIKE === true && statusPosterJid !== 'Unknown') {
       setTimeout(() => enqueueStatusLike(sock, resolvedKey, statusPosterJid), 2000)
     }
 

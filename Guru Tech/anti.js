@@ -81,7 +81,6 @@ export async function handleDeletedMessage(msg, sock, getRealSenderJid, getOwner
   const deletedMsgId = deletedMsgKey.id
   const deleterJid = getRealSenderJid(msg)
   const from = msg.key.remoteJid
-  if (deleterJid === sock.user.id) return
 
   const cacheKey = `${deletedMsgId}_${deleterJid}_delete`
   if (antiDeleteCache.has(cacheKey)) return
@@ -89,7 +88,10 @@ export async function handleDeletedMessage(msg, sock, getRealSenderJid, getOwner
   setTimeout(() => antiDeleteCache.delete(cacheKey), 5000)
 
   const deletedMsg = messageStore.get(deletedMsgId)
-  if (!deletedMsg) return
+  if (!deletedMsg) {
+    console.warn(`[ANTI-DELETE] Revoke received, but original ${deletedMsgId || 'unknown-id'} is not in the recent-message cache.`)
+    return
+  }
 
   const deleterNumber = getUserNumber(deleterJid, lidToPhoneMap)
   const formattedDeleterPhone = formatPhoneNumber(deleterNumber)
@@ -145,7 +147,11 @@ export async function handleDeletedMessage(msg, sock, getRealSenderJid, getOwner
     deletedMsg.message?.documentMessage?.caption ||
     '[Media Message]'
 
-  const ownerJid = getOwnerJid()
+  const ownerJid = getOwnerJid() || getCleanJid(sock.user?.id) || getCleanJid(sock.user?.lid)
+  if (!ownerJid) {
+    console.error('[ANTI-DELETE] Cannot forward deleted message: no configured owner or linked-account JID is available.')
+    return
+  }
   if (ownerJid) {
     const mentions = [deleterMention]
     if (chatMention) mentions.push(chatMention)
