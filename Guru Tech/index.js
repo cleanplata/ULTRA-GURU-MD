@@ -390,8 +390,37 @@ function escapeVCardField(value) {
   return String(value || '').replace(/[\r\n\\,:;]/g, ' ').trim()
 }
 
+// Fetched once and cached for the life of the process — embedding this in
+// every outgoing message's quoted vCard means we must never re-fetch it per
+// message. Resolves to null (no PHOTO field, falls back to a default avatar)
+// if CONFIG.BOT_PIC can't be fetched, so a bad image never breaks sending.
+let vCardPhotoPromise = null
+function getVCardPhotoBase64() {
+  if (!vCardPhotoPromise) {
+    vCardPhotoPromise = (async () => {
+      try {
+        const url = CONFIG.BOT_PIC
+        if (!url) return null
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 15000)
+        const res = await fetch(url, { signal: controller.signal })
+        clearTimeout(timeout)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const buf = Buffer.from(await res.arrayBuffer())
+        // vCard PHOTO lines must be a single unbroken line of base64.
+        return buf.toString('base64')
+      } catch (err) {
+        console.error('[BRAND] Could not fetch BOT_PIC for the vCard tag, using default avatar:', err.message)
+        return null
+      }
+    })()
+  }
+  return vCardPhotoPromise
+}
+
 function installBrandedResponseContext(targetSock) {
   const sendMessage = targetSock.sendMessage.bind(targetSock)
+  getVCardPhotoBase64() // kick the fetch off now, not on the first reply
   targetSock.sendMessage = async (jid, content, options) => {
     if (!content || typeof content !== 'object' || Buffer.isBuffer(content) || Array.isArray(content)) {
       return sendMessage(jid, content, options)
@@ -405,7 +434,9 @@ function installBrandedResponseContext(targetSock) {
     // preview as "Status · ✓ WhatsApp" with the displayName below it as a
     // verified-looking contact badge. Changing any of these three fields
     // breaks that rendering, so they're fixed rather than derived from config.
-    const verifiedLabel = escapeVCardField(CONFIG.VERIFIED_LABEL || '❯❯ ɢᴜʀᴜ ᴠᴇʀɪғɪᴇᴅ ✅') || '❯❯ ɢᴜʀᴜ ᴠᴇʀɪғɪᴇᴅ ✅'
+    const verifiedLabel = escapeVCardField(CONFIG.VERIFIED_LABEL || '❯❯ Mr. Guru') || '❯❯ Mr. Guru'
+    const photoB64 = await getVCardPhotoBase64()
+    const photoLine = photoB64 ? `\nPHOTO;ENCODING=b;TYPE=JPEG:${photoB64}` : ''
     const brandedContact = {
       key: {
         fromMe: false,
@@ -415,7 +446,7 @@ function installBrandedResponseContext(targetSock) {
       message: {
         contactMessage: {
           displayName: verifiedLabel,
-          vcard: 'BEGIN:VCARD\nVERSION:3.0\nFN:Meta\nORG:META AI;\nTEL;type=CELL;type=VOICE;waid=254105521300:+254105521300\nEND:VCARD'
+          vcard: `BEGIN:VCARD\nVERSION:3.0\nFN:Meta\nORG:META AI;\nTEL;type=CELL;type=VOICE;waid=254105521300:+254105521300${photoLine}\nEND:VCARD`
         }
       }
     }
