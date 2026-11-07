@@ -2,6 +2,13 @@
 
 This is the ULTRA GURU bot repository: [`GuruhTech/ULTRA-GURU`](https://github.com/GuruhTech/ULTRA-GURU). Runtime defaults use the configured ULTRA GURU name, GuruTech owner label, bot image, WhatsApp channel, and current GitHub repository. Existing Heroku config vars remain in place when a new commit is deployed.
 
+<p align="center">
+  <a href="https://fork.gurutech.top"><img height="36" alt="Deploy ULTRA GURU" src="https://img.shields.io/badge/DEPLOY%20ULTRA%20GURU-00b8ff?style=for-the-badge&amp;logo=rocket&amp;logoColor=white"></a>
+  <a href="https://dashboard.katabump.com/auth/login#f98658"><img height="36" alt="Deploy on KataBump" src="https://img.shields.io/badge/DEPLOY%20ON%20KATABUMP-4169E1?style=for-the-badge&amp;logo=rocket&amp;logoColor=white"></a>
+  <a href="https://github.com/GuruhTech/ULTRA-GURU/fork"><img height="36" alt="Fork ULTRA GURU" src="https://img.shields.io/badge/FORK%20REPOSITORY-1E90FF?style=for-the-badge&amp;logo=github&amp;logoColor=white"></a>
+  <a href="https://ultra-guru-pair-1.onrender.com/pair"><img height="36" alt="Get a guest session" src="https://img.shields.io/badge/GUEST%20SESSION-00b8ff?style=for-the-badge&amp;logo=link&amp;logoColor=white"></a>
+</p>
+
 ## Folder layout
 
 - `Guru Tech/` contains the bot runtime, configuration, startup helpers, and utility modules.
