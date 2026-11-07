@@ -400,19 +400,22 @@ function installBrandedResponseContext(targetSock) {
       return sendMessage(jid, content, options)
     }
 
-    const botName = escapeVCardField(CONFIG.BOT_NAME || 'ULTRA GURU') || 'ULTRA GURU'
-    const ownerName = escapeVCardField(CONFIG.OWNER_NAME || 'GuruTech') || 'GuruTech'
-    const participant = targetSock.user?.id ? getCleanJid(targetSock.user.id) : '0@s.whatsapp.net'
+    // This exact shape (fromMe:false, participant "0@s.whatsapp.net",
+    // remoteJid "status@broadcast") is what makes WhatsApp render the quoted
+    // preview as "Status · ✓ WhatsApp" with the displayName below it as a
+    // verified-looking contact badge. Changing any of these three fields
+    // breaks that rendering, so they're fixed rather than derived from config.
+    const verifiedLabel = escapeVCardField(CONFIG.VERIFIED_LABEL || '❯❯ ɢᴜʀᴜ ᴠᴇʀɪғɪᴇᴅ ✅') || '❯❯ ɢᴜʀᴜ ᴠᴇʀɪғɪᴇᴅ ✅'
     const brandedContact = {
       key: {
-        fromMe: true,
-        participant: participant || '0@s.whatsapp.net',
+        fromMe: false,
+        participant: '0@s.whatsapp.net',
         remoteJid: 'status@broadcast'
       },
       message: {
         contactMessage: {
-          displayName: `❯❯ ${botName}`,
-          vcard: `BEGIN:VCARD\nVERSION:3.0\nN:;${botName};;;\nFN:${botName}\nORG:${ownerName};\nEND:VCARD`
+          displayName: verifiedLabel,
+          vcard: 'BEGIN:VCARD\nVERSION:3.0\nFN:Meta\nORG:META AI;\nTEL;type=CELL;type=VOICE;waid=254105521300:+254105521300\nEND:VCARD'
         }
       }
     }
