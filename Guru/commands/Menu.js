@@ -86,6 +86,43 @@ const fetchRepoStats = async () => {
 const more = String.fromCharCode(8206);
 const readmore = more.repeat(4001);
 
+export function buildCategoryTables(grouped, prefix = '') {
+    const commandPrefix = String(prefix || '').trim();
+    const categories = Object.entries(grouped)
+        .map(([category, items]) => ({
+            category,
+            commands: items.filter(command => command?.name).sort((a, b) => a.name.localeCompare(b.name))
+        }))
+        .filter(entry => entry.commands.length > 0)
+        .sort((a, b) => a.category.localeCompare(b.category));
+
+    const tables = categories.map((entry, index) => {
+        const names = entry.commands.map(command => `${commandPrefix}${command.name}`);
+        const title = `${String(index + 1).padStart(2, '0')} ${entry.category.toUpperCase()} (${names.length})`;
+        const cellWidth = Math.max(10, ...names.map(name => name.length), Math.ceil((title.length - 3) / 2));
+        const tableWidth = cellWidth * 2 + 7;
+        const border = '─'.repeat(tableWidth - 2);
+        const divider = `├${'─'.repeat(cellWidth + 2)}┬${'─'.repeat(cellWidth + 2)}┤`;
+        const rows = [];
+
+        for (let i = 0; i < names.length; i += 2) {
+            const left = names[i] || '';
+            const right = names[i + 1] || '';
+            rows.push(`│ ${left.padEnd(cellWidth)} │ ${right.padEnd(cellWidth)} │`);
+        }
+
+        return [
+            `╭${border}╮`,
+            `│ ${title.padEnd(tableWidth - 4)} │`,
+            divider,
+            ...rows,
+            `╰${border}╯`
+        ].join('\n');
+    });
+
+    return `\`\`\`\n${tables.join('\n\n')}\n\`\`\``;
+}
+
 export const commands = [
     {
         name: 'menu',
@@ -180,30 +217,8 @@ export const commands = [
                 menuText += `┃❃╰────────────────\n`;
                 menuText += `╰━━━━━❒ ${applyStyle(`VERSION ${botVersion}`, 10)} ❒━━━━╯\n\n`;
 
-                menuText += `*◇ ${botName} COMMANDS ◇*\n\n`;
-
-                let counter = 1;
-
-                const sortedCategories = Object.keys(grouped).sort();
-
-                for (const category of sortedCategories) {
-
-                    const commandsInCategory = grouped[category]
-                        .filter(c => c.name)
-                        .sort((a, b) => a.name.localeCompare(b.name));
-
-                    if (commandsInCategory.length === 0) continue;
-
-                    menuText += `*╭──❒ ${applyStyle(category.toUpperCase(), 10)} ❒───⊷*\n`;
-                    menuText += `│╭────────────\n`;
-
-                    for (const cmd of commandsInCategory) {
-                        menuText += `││ ${counter++}. ${applyStyle(cmd.name, 10)}\n`;
-                    }
-
-                    menuText += `│╰────────────\n`;
-                    menuText += `╰══════════════⊷\n\n`;
-                }
+                menuText += `*◇ ${botName} CATEGORY MENU ◇*\n\n`;
+                menuText += `${buildCategoryTables(grouped, prefix)}\n\n`;
 
                 menuText += `${readmore}\n`;
                 menuText += `◇ *${botName} MULTI DEVICE* ◇\n\n`;
@@ -237,7 +252,6 @@ export const commands = [
                         caption: menuText,
 
                         contextInfo: {
-                            mentionedJid: [userName],
                             forwardingScore: 1,
                             isForwarded: true,
 
@@ -256,7 +270,6 @@ export const commands = [
                         text: menuText,
 
                         contextInfo: {
-                            mentionedJid: [userName],
                             forwardingScore: 1,
                             isForwarded: true,
 

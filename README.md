@@ -8,6 +8,10 @@ This repository contains the bot code from the supplied Flash-Md-V3 archive, ada
 - `Guru/` contains the command modules and shared feature/translation code.
 - The repository root keeps only the Heroku/npm manifests, environment sample, and documentation needed for deployment.
 
+## Reply style and menu
+
+Ordinary outgoing text/media replies use a branded link-preview card based on the configured bot name, owner name, profile image, and channel link. Reactions, deletions, and standalone contact payloads pass through unchanged. The preview does not simulate WhatsApp or Meta verification. The menu presents commands in compact, two-column tables grouped by category.
+
 ## WhatsApp session and LID
 
 A WhatsApp session credential is required to connect the bot. Set **one** of `SESSION` or `SESSION_ID` in Heroku Config Vars. The bot accepts both formats:

@@ -376,6 +376,41 @@ function getOwnerJid() {
   return `${ownerNumber}@s.whatsapp.net`
 }
 
+function installBrandedResponseContext(targetSock) {
+  const sendMessage = targetSock.sendMessage.bind(targetSock)
+  targetSock.sendMessage = async (jid, content, options) => {
+    if (!content || typeof content !== 'object' || Buffer.isBuffer(content) || Array.isArray(content)) {
+      return sendMessage(jid, content, options)
+    }
+    if (['react', 'delete', 'contacts', 'poll', 'groupInvite'].some(type => Object.hasOwn(content, type))) {
+      return sendMessage(jid, content, options)
+    }
+
+    const existingContext = content.contextInfo && typeof content.contextInfo === 'object'
+      ? content.contextInfo
+      : {}
+    let externalAdReply = existingContext.externalAdReply
+    if (!externalAdReply) {
+      externalAdReply = {
+        title: CONFIG.BOT_NAME || 'ULTRA GURU',
+        body: `Contact: >>> ${CONFIG.OWNER_NAME || 'GuruTech'}`,
+        mediaType: 1,
+        ...(CONFIG.BOT_PIC ? { thumbnailUrl: CONFIG.BOT_PIC } : {}),
+        ...(CONFIG.CHANNEL_URL ? { sourceUrl: CONFIG.CHANNEL_URL } : {}),
+        renderLargerThumbnail: true
+      }
+    }
+
+    return sendMessage(jid, {
+      ...content,
+      contextInfo: {
+        ...existingContext,
+        externalAdReply
+      }
+    }, options)
+  }
+}
+
 async function start() {
   try {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
@@ -388,6 +423,7 @@ async function start() {
       printQRInTerminal: false,
       markOnlineOnConnect: false
     })
+    installBrandedResponseContext(sock)
     sock.ev.on('creds.update', saveCreds)
     sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
       if (connection === 'close') {
