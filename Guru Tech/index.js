@@ -714,13 +714,13 @@ async function start() {
 
         if (!msg.message) continue
 
-        if (CONFIG.ANTIDELETE === true && msg.message?.protocolMessage) {
+        if (msg.message?.protocolMessage) {
           const protocolType = msg.message.protocolMessage.type
-          if (protocolType === 0) {
+          if (protocolType === 0 && CONFIG.ANTIDELETE === true) {
             await handleDeletedMessage(msg, sock, getRealSenderJid, getOwnerJid, lidToPhoneMap)
             continue
           }
-          if (protocolType === 14) {
+          if (protocolType === 14 && CONFIG.ANTIEDIT === true) {
             await handleEditedMessage(msg, sock, getRealSenderJid, getOwnerJid, lidToPhoneMap)
             continue
           }
