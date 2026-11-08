@@ -471,31 +471,44 @@ function installBrandedResponseContext(targetSock) {
         ])]
       }
 
-      const channelButtonMessage = generateWAMessageFromContent(jid, {
-        viewOnceMessage: {
-          message: {
-            interactiveMessage: {
-              body: { text: content.text },
-              footer: { text: CONFIG.BOT_NAME || 'ULTRA GURU' },
-              ...(Object.keys(interactiveContext).length ? { contextInfo: interactiveContext } : {}),
-              nativeFlowMessage: {
-                buttons: [{
-                  name: 'cta_url',
-                  buttonParamsJson: JSON.stringify({
-                    display_text: 'View Channel',
-                    url: CONFIG.CHANNEL_URL
-                  })
-                }]
+      let relayTimeout
+      try {
+        const channelButtonMessage = generateWAMessageFromContent(jid, {
+          viewOnceMessage: {
+            message: {
+              interactiveMessage: {
+                body: { text: content.text },
+                footer: { text: CONFIG.BOT_NAME || 'ULTRA GURU' },
+                ...(Object.keys(interactiveContext).length ? { contextInfo: interactiveContext } : {}),
+                nativeFlowMessage: {
+                  buttons: [{
+                    name: 'cta_url',
+                    buttonParamsJson: JSON.stringify({
+                      display_text: 'View Channel',
+                      url: CONFIG.CHANNEL_URL
+                    })
+                  }]
+                }
               }
             }
           }
-        }
-      }, { ...messageOptions, quoted: brandedContact })
+        }, { ...messageOptions, quoted: brandedContact })
 
-      await targetSock.relayMessage(jid, channelButtonMessage.message, {
-        messageId: channelButtonMessage.key.id
-      })
-      return channelButtonMessage
+        await Promise.race([
+          targetSock.relayMessage(jid, channelButtonMessage.message, {
+            messageId: channelButtonMessage.key.id
+          }),
+          new Promise((_, reject) => {
+            relayTimeout = setTimeout(() => reject(new Error('Channel button delivery timed out after 10 seconds.')), 10000)
+          })
+        ])
+        clearTimeout(relayTimeout)
+        return channelButtonMessage
+      } catch (ctaError) {
+        clearTimeout(relayTimeout)
+        console.warn('[CHANNEL CTA] Button send failed; falling back to text:', ctaError?.message || ctaError)
+        return sendMessage(jid, content, { ...messageOptions, quoted: brandedContact })
+      }
     }
 
     return sendMessage(jid, content, { ...messageOptions, quoted: brandedContact })
@@ -982,7 +995,7 @@ async function start() {
 
         await sock.sendMessage(msg.key.remoteJid, {
           react: {
-            text: '⚡',
+            text: '🧪',
             key: msg.key
           }
         })
