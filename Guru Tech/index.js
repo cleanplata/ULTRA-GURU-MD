@@ -714,16 +714,21 @@ async function start() {
 
         if (!msg.message) continue
 
-        if (msg.message?.protocolMessage) {
+        if (CONFIG.ANTIDELETE === true && msg.message?.protocolMessage) {
           const protocolType = msg.message.protocolMessage.type
-          if (protocolType === 0 && CONFIG.ANTIDELETE === true) {
+          if (protocolType === 0) {
             await handleDeletedMessage(msg, sock, getRealSenderJid, getOwnerJid, lidToPhoneMap)
             continue
           }
-          if (protocolType === 14 && CONFIG.ANTIEDIT === true) {
+          if (protocolType === 14) {
             await handleEditedMessage(msg, sock, getRealSenderJid, getOwnerJid, lidToPhoneMap)
             continue
           }
+        }
+
+        if (CONFIG.ANTIEDIT === true && msg.message?.protocolMessage?.type === 14) {
+          await handleEditedMessage(msg, sock, getRealSenderJid, getOwnerJid, lidToPhoneMap)
+          continue
         }
 
         const typeMsg = Object.keys(msg.message || {})[0] || 'unknown'
