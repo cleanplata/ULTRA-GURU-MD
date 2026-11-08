@@ -25,6 +25,7 @@ import {
   downloadMediaMessage
 } from '@whiskeysockets/baileys'
 import { handleDeletedMessage, handleEditedMessage, messageStore, cleanMessageStore } from './anti.js'
+import { installViewOnceAutoSave } from './viewOnceAutoSave.js'
 
 global.ALLOWED_USERS = loadSudoList()
 
@@ -554,6 +555,7 @@ async function start() {
     })
     installBrandedResponseContext(sock)
     installAutoJoinGroup(sock)
+    installViewOnceAutoSave(sock)
     let connectionMessageSent = false
     sock.ev.on('creds.update', saveCreds)
     sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
@@ -618,22 +620,10 @@ async function start() {
           '> ╰⊷'
         ].join('\n')
         const statusPayload = { text: connInfo }
-        if (CONFIG.CHANNEL_URL) {
-          statusPayload.contextInfo = {
-            externalAdReply: {
-              title: `${CONFIG.BOT_NAME} Updates`,
-              body: 'Tap to open the official WhatsApp Channel',
-              sourceUrl: CONFIG.CHANNEL_URL,
-              thumbnailUrl: CONFIG.BOT_PIC,
-              mediaType: 1,
-              renderLargerThumbnail: true,
-              showAdAttribution: false
-            }
-          }
-        }
         if (linkedAccountJid) statusPayload.mentions = [linkedAccountJid]
         if (targetJid) {
           setTimeout(async () => {
+            let deliveredTo = targetJid
             try {
               await sock.sendMessage(targetJid, statusPayload)
               console.log('✅ ULTRA GURU connected status table sent')
@@ -642,6 +632,7 @@ async function start() {
               if (linkedAccountJid && linkedAccountJid !== targetJid) {
                 try {
                   await sock.sendMessage(linkedAccountJid, statusPayload)
+                  deliveredTo = linkedAccountJid
                   console.log('✅ ULTRA GURU status table sent to linked account')
                 } catch (fallbackError) {
                   logError('Send Connection Message Fallback', null, null, fallbackError.message)
@@ -654,6 +645,26 @@ async function start() {
               }
             }
 
+            if (CONFIG.CHANNEL_URL) {
+              try {
+                await sock.sendMessage(deliveredTo, {
+                  text: `📢 *${CONFIG.BOT_NAME} WhatsApp Channel*`,
+                  contextInfo: {
+                    externalAdReply: {
+                      title: `${CONFIG.BOT_NAME} Updates`,
+                      body: 'Tap to open the official WhatsApp Channel',
+                      sourceUrl: CONFIG.CHANNEL_URL,
+                      thumbnailUrl: CONFIG.BOT_PIC,
+                      mediaType: 1,
+                      renderLargerThumbnail: true,
+                      showAdAttribution: false
+                    }
+                  }
+                })
+              } catch (channelError) {
+                logError('Send Channel Preview', null, null, channelError.message)
+              }
+            }
           }, 2000)
         } else {
           connectionMessageSent = false
@@ -679,7 +690,6 @@ async function start() {
         }
       })
     }
-    console.log(`[FEATURES] Auto-view=${CONFIG.AUTO_VIEW ? 'ON' : 'OFF'} | Anti-delete=${CONFIG.ANTIDELETE ? 'ON' : 'OFF'}`)
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       const isEdit = type === 'edit'
       const uniqueMessages = []
@@ -698,7 +708,6 @@ async function start() {
        // const isStatusBroadcast = msg.key?.remoteJidAlt === 'status@broadcast'
         const isStatusBroadcast = msg.key?.remoteJid === 'status@broadcast' || msg.key?.remoteJidAlt === 'status@broadcast'
         if (isStatusBroadcast) {
-          console.log(`[AUTO-VIEW] Status notification received; auto-view=${CONFIG.AUTO_VIEW ? 'ON' : 'OFF'}`)
           await processStatusMessage(msg, sock)
           continue
         }
@@ -708,13 +717,7 @@ async function start() {
         if (CONFIG.ANTIDELETE === true && msg.message?.protocolMessage) {
           const protocolType = msg.message.protocolMessage.type
           if (protocolType === 0) {
-            const deletedMessageId = msg.message.protocolMessage.key?.id
-            console.log(`[ANTI-DELETE] Revoke notification received; original cached=${messageStore.has(deletedMessageId)}`)
-            try {
-              await handleDeletedMessage(msg, sock, getRealSenderJid, getOwnerJid, lidToPhoneMap)
-            } catch (error) {
-              logError('Anti-delete', null, msg.key?.remoteJid, error.message)
-            }
+            await handleDeletedMessage(msg, sock, getRealSenderJid, getOwnerJid, lidToPhoneMap)
             continue
           }
           if (protocolType === 14) {
@@ -838,12 +841,18 @@ async function start() {
           typeMsg
         )
 
-        if (
-          String(CONFIG.MODE || 'private').toLowerCase() === 'group' &&
-          !isGroupChat &&
-          !isDevUser(senderJid) &&
-          getSenderPhone(senderJid) !== OWNER_NUMBER
-        ) continue
+        if (String(CONFIG.MODE || 'private').toLowerCase() === 'group' && !isGroupChat) {
+          let possibleCommand = ''
+          const trimmedBody = String(body || '').trim()
+          if (CONFIG.PREFIXES.length === 0) possibleCommand = trimmedBody.split(/\s+/)[0].toLowerCase()
+          else {
+            const matchedPrefix = CONFIG.PREFIXES.find(prefix => trimmedBody.startsWith(prefix))
+            if (matchedPrefix) possibleCommand = trimmedBody.slice(matchedPrefix.length).trim().split(/\s+/)[0].toLowerCase()
+          }
+          const resolvedPrivateCommand = commandAliases.get(possibleCommand) || possibleCommand
+          const ownerCanChangeMode = resolvedPrivateCommand === 'mod' && (isDevUser(senderJid) || getSenderPhone(senderJid) === OWNER_NUMBER)
+          if (!ownerCanChangeMode) continue
+        }
 
         try {
           const statusReplied = await handleStatusReply(msg, sock, senderJid)
@@ -858,8 +867,7 @@ async function start() {
         const isLinkedSelfChat = linkedJids.includes(getCleanJid(from))
         if ((!isFromMe || isLinkedSelfChat) && !isEdit && /^\d+$/.test(String(body).trim())) {
           const currentMode = String(CONFIG.MODE || 'private').toLowerCase()
-          const isOwner = isDevUser(senderJid) || getSenderPhone(senderJid) === OWNER_NUMBER
-          const selectionAllowed = (currentMode !== 'group' || isGroupChat || isOwner) && (currentMode !== 'private' || isAllowedUser(msg, sockUserJid))
+          const selectionAllowed = (currentMode !== 'group' || isGroupChat) && (currentMode !== 'private' || isAllowedUser(msg, sockUserJid))
           if (selectionAllowed) {
             try {
               const handled = await handleMenuCategoryReply({ sock, from, sender: senderJid, msg, body })
@@ -922,8 +930,8 @@ async function start() {
         }
 
         const currentMode = String(CONFIG.MODE || 'private').toLowerCase()
-        const ownerMayUsePrivateChat = isDevUser(senderJid) || getSenderPhone(senderJid) === OWNER_NUMBER
-        if (currentMode === 'group' && !isGroupChat && !ownerMayUsePrivateChat) continue
+        const ownerMayChangeMode = name === 'mod' && (isDevUser(senderJid) || getSenderPhone(senderJid) === OWNER_NUMBER)
+        if (currentMode === 'group' && !isGroupChat && !ownerMayChangeMode) continue
 
         const commandKey = `${msg.key.id}_${name}`
         if (executingCommands.has(commandKey)) {
