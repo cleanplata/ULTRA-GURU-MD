@@ -22,7 +22,8 @@ import {
   DisconnectReason,
   fetchLatestBaileysVersion,
   useMultiFileAuthState,
-  downloadMediaMessage
+  downloadMediaMessage,
+  generateWAMessageFromContent
 } from '@whiskeysockets/baileys'
 import { handleDeletedMessage, handleEditedMessage, messageStore, cleanMessageStore } from './anti.js'
 import { installViewOnceAutoSave } from './viewOnceAutoSave.js'
@@ -458,26 +459,46 @@ function installBrandedResponseContext(targetSock) {
     const messageContext = content.contextInfo && typeof content.contextInfo === 'object'
       ? content.contextInfo
       : {}
-    const outgoingContent = CONFIG.CHANNEL_URL
-      ? {
-          ...content,
-          contextInfo: {
-            ...messageContext,
-            externalAdReply: {
-              ...(messageContext.externalAdReply || {}),
-              title: `${CONFIG.BOT_NAME} WhatsApp Channel`,
-              body: 'Tap to view the official WhatsApp Channel',
-              sourceUrl: CONFIG.CHANNEL_URL,
-              thumbnailUrl: CONFIG.BOT_PIC,
-              mediaType: 1,
-              renderLargerThumbnail: true,
-              showAdAttribution: false
+    const supportedTextFields = new Set(['text', 'contextInfo', 'mentions'])
+    const hasOnlyTextContent = Object.keys(content).every(field => supportedTextFields.has(field))
+
+    if (CONFIG.CHANNEL_URL && typeof content.text === 'string' && hasOnlyTextContent) {
+      const interactiveContext = { ...messageContext }
+      if (Array.isArray(content.mentions) && content.mentions.length) {
+        interactiveContext.mentionedJid = [...new Set([
+          ...(interactiveContext.mentionedJid || []),
+          ...content.mentions
+        ])]
+      }
+
+      const channelButtonMessage = generateWAMessageFromContent(jid, {
+        viewOnceMessage: {
+          message: {
+            interactiveMessage: {
+              body: { text: content.text },
+              footer: { text: CONFIG.BOT_NAME || 'ULTRA GURU' },
+              ...(Object.keys(interactiveContext).length ? { contextInfo: interactiveContext } : {}),
+              nativeFlowMessage: {
+                buttons: [{
+                  name: 'cta_url',
+                  buttonParamsJson: JSON.stringify({
+                    display_text: 'View Channel',
+                    url: CONFIG.CHANNEL_URL
+                  })
+                }]
+              }
             }
           }
         }
-      : content
+      }, { ...messageOptions, quoted: brandedContact })
 
-    return sendMessage(jid, outgoingContent, { ...messageOptions, quoted: brandedContact })
+      await targetSock.relayMessage(jid, channelButtonMessage.message, {
+        messageId: channelButtonMessage.key.id
+      })
+      return channelButtonMessage
+    }
+
+    return sendMessage(jid, content, { ...messageOptions, quoted: brandedContact })
   }
 }
 
