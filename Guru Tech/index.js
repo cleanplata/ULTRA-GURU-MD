@@ -22,8 +22,7 @@ import {
   DisconnectReason,
   fetchLatestBaileysVersion,
   useMultiFileAuthState,
-  downloadMediaMessage,
-  generateWAMessageFromContent
+  downloadMediaMessage
 } from '@whiskeysockets/baileys'
 import { handleDeletedMessage, handleEditedMessage, messageStore, cleanMessageStore } from './anti.js'
 import { installViewOnceAutoSave } from './viewOnceAutoSave.js'
@@ -463,49 +462,20 @@ function installBrandedResponseContext(targetSock) {
     const hasOnlyTextContent = Object.keys(content).every(field => supportedTextFields.has(field))
 
     if (CONFIG.CHANNEL_URL && typeof content.text === 'string' && hasOnlyTextContent) {
-      const interactiveContext = { ...messageContext }
-      if (Array.isArray(content.mentions) && content.mentions.length) {
-        interactiveContext.mentionedJid = [...new Set([
-          ...(interactiveContext.mentionedJid || []),
-          ...content.mentions
-        ])]
-      }
-
-      let relayTimeout
-      try {
-        const channelButtonMessage = generateWAMessageFromContent(jid, {
-          viewOnceMessage: {
-            message: {
-              interactiveMessage: {
-                body: { text: content.text },
-                footer: { text: CONFIG.BOT_NAME || 'ULTRA GURU' },
-                ...(Object.keys(interactiveContext).length ? { contextInfo: interactiveContext } : {}),
-                nativeFlowMessage: {
-                  buttons: [{
-                    name: 'cta_url',
-                    buttonParamsJson: JSON.stringify({
-                      display_text: 'View Channel',
-                      url: CONFIG.CHANNEL_URL
-                    })
-                  }]
-                }
-              }
-            }
+      const channelButtonContent = {
+        ...content,
+        footer: CONFIG.BOT_NAME || 'ULTRA GURU',
+        templateButtons: [{
+          index: 1,
+          urlButton: {
+            displayText: 'View Channel',
+            url: CONFIG.CHANNEL_URL
           }
-        }, { ...messageOptions, quoted: brandedContact })
-
-        await Promise.race([
-          targetSock.relayMessage(jid, channelButtonMessage.message, {
-            messageId: channelButtonMessage.key.id
-          }),
-          new Promise((_, reject) => {
-            relayTimeout = setTimeout(() => reject(new Error('Channel button delivery timed out after 10 seconds.')), 10000)
-          })
-        ])
-        clearTimeout(relayTimeout)
-        return channelButtonMessage
+        }]
+      }
+      try {
+        return await sendMessage(jid, channelButtonContent, { ...messageOptions, quoted: brandedContact })
       } catch (ctaError) {
-        clearTimeout(relayTimeout)
         console.warn('[CHANNEL CTA] Button send failed; falling back to text:', ctaError?.message || ctaError)
         return sendMessage(jid, content, { ...messageOptions, quoted: brandedContact })
       }
