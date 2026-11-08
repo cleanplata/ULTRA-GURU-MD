@@ -13,25 +13,17 @@ export const commands = [
     execute: async ({ sock, from, msg }) => {
       const start = now()
       const botName = CONFIG.BOT_NAME || 'ULTRA GURU'
-      const pingMsg = await sock.sendMessage(
+      await sock.sendMessage(
         from,
         { text: 'Pinging...' },
         { quoted: msg }
       )
 
       const latency = Math.round(now() - start)
-      await sock.relayMessage(
+      await sock.sendMessage(
         from,
-        {
-          protocolMessage: {
-            key: pingMsg.key,
-            type: 14,
-            editedMessage: {
-              conversation: `🏓 Pong!\n⏱️ *_${botName} Speed: ${latency} ms_*`
-            }
-          }
-        },
-        {}
+        { text: `🏓 Pong!\n⏱️ *_${botName} Speed: ${latency} ms_*` },
+        { quoted: msg }
       )
     }
   },

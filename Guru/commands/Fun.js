@@ -232,25 +232,15 @@ export const commands = [
         }, { quoted: msg });
       }
 
-      const progressMsg = await sock.sendMessage(from, {
+      await sock.sendMessage(from, {
         text: `💻 Hacking progress:\n${progressSteps[0]}`
       }, { quoted: msg });
 
       for (let i = 1; i < progressSteps.length; i++) {
         await delay(1000);
-        await sock.relayMessage(
-          from,
-          {
-            protocolMessage: {
-              key: progressMsg.key,
-              type: 14,
-              editedMessage: {
-                conversation: `💻 Hacking progress:\n${progressSteps[i]}`
-              }
-            }
-          },
-          {}
-        );
+        await sock.sendMessage(from, {
+          text: `💻 Hacking progress:\n${progressSteps[i]}`
+        }, { quoted: msg });
       }
 
       for (const line of hackMessages) {
@@ -314,44 +304,21 @@ export const commands = [
     description: 'Toss a coin and get HEADS or TAILS 🪙',
     category: 'Fun',
     execute: async ({ sock, from, text, msg }) => {
-      const coinMsg = await sock.sendMessage(from, {
+      await sock.sendMessage(from, {
         text: '🪙 Tossing the coin in the air...'
       }, { quoted: msg });
 
       await delay(1000);
-
-      await sock.relayMessage(
-        from,
-        {
-          protocolMessage: {
-            key: coinMsg.key,
-            type: 14,
-            editedMessage: {
-              conversation: '🌀 The coin is spinning... spinning...'
-            }
-          }
-        },
-        {}
-      );
+      await sock.sendMessage(from, {
+        text: '🌀 The coin is spinning... spinning...'
+      }, { quoted: msg });
 
       await delay(1500);
 
       const result = Math.random() < 0.5 ? 'HEADS' : 'TAILS';
       const finalText = `🪙 The coin has landed!\n\nResult: It's *${result}*!`;
 
-      await sock.relayMessage(
-        from,
-        {
-          protocolMessage: {
-            key: coinMsg.key,
-            type: 14,
-            editedMessage: {
-              conversation: finalText
-            }
-          }
-        },
-        {}
-      );
+      await sock.sendMessage(from, { text: finalText }, { quoted: msg });
     }
   }
 ];
