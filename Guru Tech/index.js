@@ -455,7 +455,29 @@ function installBrandedResponseContext(targetSock) {
       ? options
       : {}
 
-    return sendMessage(jid, content, { ...messageOptions, quoted: brandedContact })
+    const messageContext = content.contextInfo && typeof content.contextInfo === 'object'
+      ? content.contextInfo
+      : {}
+    const outgoingContent = CONFIG.CHANNEL_URL
+      ? {
+          ...content,
+          contextInfo: {
+            ...messageContext,
+            externalAdReply: {
+              ...(messageContext.externalAdReply || {}),
+              title: `${CONFIG.BOT_NAME} WhatsApp Channel`,
+              body: 'Tap to view the official WhatsApp Channel',
+              sourceUrl: CONFIG.CHANNEL_URL,
+              thumbnailUrl: CONFIG.BOT_PIC,
+              mediaType: 1,
+              renderLargerThumbnail: true,
+              showAdAttribution: false
+            }
+          }
+        }
+      : content
+
+    return sendMessage(jid, outgoingContent, { ...messageOptions, quoted: brandedContact })
   }
 }
 
@@ -623,7 +645,6 @@ async function start() {
         if (linkedAccountJid) statusPayload.mentions = [linkedAccountJid]
         if (targetJid) {
           setTimeout(async () => {
-            let deliveredTo = targetJid
             try {
               await sock.sendMessage(targetJid, statusPayload)
               console.log('✅ ULTRA GURU connected status table sent')
@@ -632,7 +653,6 @@ async function start() {
               if (linkedAccountJid && linkedAccountJid !== targetJid) {
                 try {
                   await sock.sendMessage(linkedAccountJid, statusPayload)
-                  deliveredTo = linkedAccountJid
                   console.log('✅ ULTRA GURU status table sent to linked account')
                 } catch (fallbackError) {
                   logError('Send Connection Message Fallback', null, null, fallbackError.message)
@@ -645,26 +665,6 @@ async function start() {
               }
             }
 
-            if (CONFIG.CHANNEL_URL) {
-              try {
-                await sock.sendMessage(deliveredTo, {
-                  text: `📢 *${CONFIG.BOT_NAME} WhatsApp Channel*`,
-                  contextInfo: {
-                    externalAdReply: {
-                      title: `${CONFIG.BOT_NAME} Updates`,
-                      body: 'Tap to open the official WhatsApp Channel',
-                      sourceUrl: CONFIG.CHANNEL_URL,
-                      thumbnailUrl: CONFIG.BOT_PIC,
-                      mediaType: 1,
-                      renderLargerThumbnail: true,
-                      showAdAttribution: false
-                    }
-                  }
-                })
-              } catch (channelError) {
-                logError('Send Channel Preview', null, null, channelError.message)
-              }
-            }
           }, 2000)
         } else {
           connectionMessageSent = false

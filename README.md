@@ -17,9 +17,9 @@ This is the ULTRA GURU bot repository: [`GuruhTech/ULTRA-GURU`](https://github.c
 
 ## Replies, connection status, and menu
 
-Text and media replies use a quoted contact-card style branded as ULTRA GURU with the configured owner label. It does not claim Meta/WhatsApp verification or include another project's identity or a hard-coded phone number. Reactions, deletions, and standalone contact payloads are not changed by the reply wrapper.
+Text and media replies use a quoted contact-card style branded as ULTRA GURU with the configured owner label. The configured WhatsApp Channel rich preview is attached to each normal outgoing text or media response, including errors and the connection table, using the configured channel URL and bot image. Reactions, deletions, polls, and group-invite actions are protocol/action messages rather than normal replies and are not changed by the wrapper.
 
-After each successful WhatsApp connection (including after a restart), the bot sends a short table with the bot name, connection status, current mode, detected host, `HOSTING_URL`, and a WhatsApp mention of the linked account. It sends the official WhatsApp Channel as a separate rich preview card using the bot image instead of printing the channel URL as plain text. The table is sent to `OWNER_NUMBER` when configured, otherwise to the linked account's own chat.
+After each successful WhatsApp connection (including after a restart), the bot sends a short table with the bot name, connection status, current mode, detected host, `HOSTING_URL`, and a WhatsApp mention of the linked account. The channel preview is attached to that same table message, not sent as a separate follow-up. The table is sent to `OWNER_NUMBER` when configured, otherwise to the linked account's own chat.
 
 The `.menu` command displays the configured bot image with a numbered category index; category results also use the bot image. The menu lists each canonical command and its working aliases as separate callable names. The repository currently defines 174 primary command names plus 156 aliases (328 unique invocation names); aliases dispatch to their existing handlers rather than representing separate implementations. Reply to the menu with a category number (for example, `1`) within 10 minutes, or use `.menu <number>` / `.menu <category>` directly.
 
