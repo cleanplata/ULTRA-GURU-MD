@@ -1,64 +1,66 @@
-# ULTRA GURU WhatsApp Bot
+[![ULTRA GURU Banner](https://res.cloudinary.com/dqxlb29uz/image/upload/v1780267810/bwm_uploads/media-1780267810008.jpg)](https://github.com/GuruhTech/ULTRA-GURU)
 
-This is the ULTRA GURU bot repository: [`GuruhTech/ULTRA-GURU`](https://github.com/GuruhTech/ULTRA-GURU). Runtime defaults use the configured ULTRA GURU name, GuruTech owner label, bot image, WhatsApp channel, and current GitHub repository. Existing Heroku config vars remain in place when a new commit is deployed.
+# 🎖️ ULTRA GURU MD 🎖️
 
-<p align="center">
-  <a href="https://fork.gurutech.top"><img height="36" alt="Deploy ULTRA GURU" src="https://img.shields.io/badge/DEPLOY%20ULTRA%20GURU-00b8ff?style=for-the-badge&amp;logo=rocket&amp;logoColor=white"></a>
-  <a href="https://dashboard.katabump.com/auth/login#f98658"><img height="36" alt="Deploy on KataBump" src="https://img.shields.io/badge/DEPLOY%20ON%20KATABUMP-4169E1?style=for-the-badge&amp;logo=rocket&amp;logoColor=white"></a>
-  <a href="https://github.com/GuruhTech/ULTRA-GURU/fork"><img height="36" alt="Fork ULTRA GURU" src="https://img.shields.io/badge/FORK%20REPOSITORY-1E90FF?style=for-the-badge&amp;logo=github&amp;logoColor=white"></a>
-  <a href="https://ultra-guru-pair-1.onrender.com/pair"><img height="36" alt="Get a guest session" src="https://img.shields.io/badge/GUEST%20SESSION-00b8ff?style=for-the-badge&amp;logo=link&amp;logoColor=white"></a>
-</p>
+[![](https://img.shields.io/badge/AUTHOR-GURUHTECH-00b8ff?style=for-the-badge&logo=github)](https://github.com/GuruhTech)
+[![](https://img.shields.io/github/stars/GuruhTech/ULTRA-GURU?style=social)](https://github.com/GuruhTech/ULTRA-GURU/stargazers/)
+[![](https://img.shields.io/github/forks/GuruhTech/ULTRA-GURU?style=social)](https://github.com/GuruhTech/ULTRA-GURU/network/members)
+![Profile Views](https://komarev.com/ghpvc/?username=GuruhTech&label=PROFILE+VIEWS&color=00b8ff&style=for-the-badge)
 
-## Folder layout
+---
 
-- `Guru Tech/` contains the bot runtime, configuration, startup helpers, and utility modules.
-- `Guru/` contains command modules and shared feature/translation code.
-- The repository root keeps the Heroku/npm manifests, environment sample, and deployment documentation.
+# 🛠️ QUICK SETUP
 
-## Replies, connection status, and menu
+## 1. FORK THE REPOSITORY
 
-Text and media replies use a quoted contact-card style branded as ULTRA GURU with the configured owner label. The configured WhatsApp Channel rich preview is attached to each normal outgoing text or media response, including errors and the connection table, using the configured channel URL and bot image. Reactions, deletions, polls, and group-invite actions are protocol/action messages rather than normal replies and are not changed by the wrapper.
+[![Fork Repo](https://img.shields.io/badge/FORK%20REPO-1E90FF?style=for-the-badge&logo=github&logoColor=white)](https://github.com/GuruhTech/ULTRA-GURU/fork)
 
-After each successful WhatsApp connection (including after a restart), the bot sends a short table with the bot name, connection status, current mode, detected host, `HOSTING_URL`, and a WhatsApp mention of the linked account. The channel preview is attached to that same table message, not sent as a separate follow-up. The table is sent to `OWNER_NUMBER` when configured, otherwise to the linked account's own chat.
+## 2. DOWNLOAD ZIP (Panel Users)
 
-The `.menu` command displays the configured bot image with a numbered category index; category results also use the bot image. The menu lists each canonical command and its working aliases as separate callable names. The repository currently defines 174 primary command names plus 156 aliases (328 unique invocation names); aliases dispatch to their existing handlers rather than representing separate implementations. Reply to the menu with a category number (for example, `1`) within 10 minutes, or use `.menu <number>` / `.menu <category>` directly.
+[![Download ZIP](https://img.shields.io/badge/DOWNLOAD%20ZIP-4169E1?style=for-the-badge&logo=github&logoColor=white)](https://github.com/GuruhTech/ULTRA-GURU/archive/refs/heads/main.zip)
 
-The owner-only `.mod public`, `.mod private`, and `.mod group only` commands switch modes immediately; `.mode` and `.setmode` are aliases. Group-only mode allows commands in groups and lets the owner use `.mod` in a private chat to change the mode back. A command change is runtime-only: after a dyno restart, set `MODE` in the host's Config Vars to retain the desired mode.
+## 3. GET SESSION ID
 
-Owner-only administration commands include `.update` (start a Heroku build from the latest commit on the configured GitHub repository's `main` branch), `.security` (show active protections), and `.antidelete`, `.antiedit`, `.autoview`, and `.autolike` with `on` or `off` (change that feature for the current process). The feature toggles reset when the process restarts; configure the corresponding host Config Vars for persistent settings.
+Choose your preferred method:
 
-To enable `.update`, set `HEROKU_API_KEY`, `HEROKU_APP_NAME`, and `UPDATE_REPOSITORY` as private Heroku Config Vars. The update source should be the primary repository, `UPDATE_REPOSITORY=GuruhTech/ULTRA-GURU`. The command is owner-only, requests a build for a pinned GitHub commit, and has a five-minute cooldown. Before building, it verifies that the primary repo contains the expected ULTRA GURU runtime and admin command files; if those files are missing, it refuses to deploy rather than roll back to an older tree. Heroku builds the source and releases/restarts the app if the build succeeds. The command never replaces files inside the running dyno. Keep the API key secret; it grants access to the Heroku Platform API. To update after every GitHub push without issuing `.update`, configure GitHub auto-deploy in Heroku instead.
+[![Pair Code](https://img.shields.io/badge/PAIR%20CODE-00b8ff?style=for-the-badge&logo=link&logoColor=white)](https://ultra-guru-pair-1.onrender.com/pair)
+[![QR Code](https://img.shields.io/badge/SCAN%20QR%20CODE-1E90FF?style=for-the-badge&logo=qrcode&logoColor=white)](https://ultra-guru-pair-1.onrender.com/qr)
 
-## Media commands
+---
 
-- `.play <song name or YouTube link>` searches for the song, sends its thumbnail/details first, then sends a standard MP3 audio message (`ptt: false`) intended for native WhatsApp playback. It tries the configured downloader, then the secondary `ytDl3` API, then optional local yt-dlp; API calls are capped at 12 seconds and local extraction at 45 seconds. Final MP3s are limited to 15 MB. The two external APIs can be unavailable, and local extraction may be blocked by YouTube account verification. The optional yt-dlp wrapper needs Python 3.11+ when installed; see its [install requirements](https://github.com/microlinkhq/youtube-dl-exec/blob/main/scripts/preinstall.js).
-- `.compress` on a video caption, or as a reply to a video, re-encodes it as WhatsApp-compatible H.264/AAC MP4. Source videos over 150 MB or results over 64 MB are rejected.
-- `.tomp3` (also `.toaudio`) converts a video to audio; `.trim`, `.sticker`, and `.toimg` provide additional media conversion tools.
+# 🚀 DEPLOYMENT
 
-## WhatsApp session and LID
+[![DEPLOY ULTRA NOW](https://img.shields.io/badge/DEPLOY%20ULTRA%20NOW-00b8ff?style=for-the-badge&logo=rocket&logoColor=white)](https://fork.gurutech.top)
 
-A WhatsApp session credential is required to connect the bot. Set **one** of `SESSION` or `SESSION_ID` in Heroku Config Vars. Both accepted formats are:
+### ⚡ One-click deployment
 
-- `SESSION`: base64-encoded `creds.json`.
-- `SESSION_ID`: `GURU~` followed by base64-encoded gzip-compressed `creds.json`. For compatibility, `SESSION_ID` also accepts plain base64-encoded `creds.json`.
+Deploy **ULTRA GURU MD** instantly using the official deployment portal. Simply click the button above, verify your repository, and complete the deployment process.
 
-The bot converts either accepted value to the local Baileys credential file at startup. A session ID is a secret login credential: keep it in Heroku Config Vars; never paste it into source code or commit it to GitHub.
+---
 
-`USER_LID` is **optional**. A LID is WhatsApp's account identifier used to resolve messages in newer WhatsApp addressing modes; it is not a login credential and is not needed to create the WhatsApp connection. When the bot connects, it learns the linked account's LID automatically. `OWNER_NUMBER` is also optional if commands are run from the linked bot account; set it only if you want to identify a separate owner contact. Do not commit a real phone number or LID to the repository.
+## ☁️ KataBump
 
-## Heroku
+[![Deploy on KataBump](https://img.shields.io/badge/DEPLOY%20ON%20KATABUMP-4169E1?style=for-the-badge&logo=rocket&logoColor=white)](https://dashboard.katabump.com/auth/login#f98658)
 
-The included `Procfile` starts the bot with `node "Guru Tech/index.js"`. Existing Heroku config vars persist when Heroku deploys a new commit. Check that either `SESSION_ID` or `SESSION` is configured before restarting the dyno. Useful optional vars include `OWNER_NAME`, `BOT_NAME`, `BOT_PIC`, `CHANNEL_JID`, `CHANNEL_URL`, `HOSTING_URL`, `HOSTING_PROVIDER`, and `GITHUB_REPO`; defaults are provided in `Guru Tech/config.js` and `app.json`.
+---
 
-The root route (`/`) confirms the Node process is responding. `/health` reports the WhatsApp connection state (`503` while disconnected, `200` after it connects). In Heroku logs, look for `[AUTH] Session format accepted: ...` followed by `Connected to WhatsApp` to confirm session decoding and connection. A deployment can succeed while WhatsApp authentication still fails, so both log messages matter.
+## 🐧 VPS / Termux
 
-## Local development
-
-Use Node.js 20 or newer. Copy `.env-sample` to `.env`, set a valid session in one supported format, then run:
-
-```sh
+```bash
+git clone https://github.com/GuruhTech/ULTRA-GURU.git
+cd ULTRA-GURU
 npm install
 npm start
 ```
 
-`.env`, auth files, and generated logs are excluded by `.gitignore`.
+---
+
+# 🌐 CONNECT WITH US
+
+[![Telegram](https://img.shields.io/badge/TELEGRAM-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/GURU_TECHLAB)
+
+[![WhatsApp Channel](https://img.shields.io/badge/WHATSAPP%20CHANNEL-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://whatsapp.com/channel/0029VbDh88NCMY0Fartkxm1g)
+
+---
+
+### ⭐ If you like **ULTRA GURU MD**, don't forget to star the repository and share it with others!
