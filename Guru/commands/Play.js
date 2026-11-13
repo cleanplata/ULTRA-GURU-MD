@@ -184,14 +184,44 @@ async function viaYtDlp(videoUrl) {
   try { ffmpegPath = (await import('ffmpeg-static')).default } catch {}
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'play-'))
   try {
-    const args = ['-f', 'bestaudio[ext=m4a]/bestaudio/best', '-o', path.join(dir, 'src.%(ext)s'),
-      '--no-playlist', '--no-warnings', '--no-progress', videoUrl]
-    try { await runBinary(bin, ['--js-runtimes', 'node', ...args]) }
-    catch (first) {
-      console.warn('[PLAY] yt-dlp attempt 1 failed:', short(first))
-      for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { force: true })
-      await runBinary(bin, args)
+    const baseArgs = ['-f', 'bestaudio[ext=m4a]/bestaudio/best', '-o', path.join(dir, 'src.%(ext)s'),
+      '--no-playlist', '--no-warnings', '--no-progress']
+
+    // Optional anti-bot helpers, set as config vars on the host:
+    //   YT_COOKIES_B64 (or YT_COOKIES) = a YouTube cookies.txt (Netscape format), base64 encoded for _B64
+    //   YT_PROXY       = e.g. http://user:pass@host:port (a residential/non-datacenter proxy)
+    const extra = []
+    const cookieText = process.env.YT_COOKIES_B64
+      ? Buffer.from(process.env.YT_COOKIES_B64, 'base64').toString('utf8')
+      : process.env.YT_COOKIES
+    if (cookieText) {
+      const cookieFile = path.join(dir, 'cookies.txt')
+      fs.writeFileSync(cookieFile, cookieText)
+      extra.push('--cookies', cookieFile)
     }
+    if (process.env.YT_PROXY) extra.push('--proxy', process.env.YT_PROXY)
+
+    // YouTube treats different "player clients" differently; datacenter hosts are often
+    // blocked on one client but not another, so try several in turn.
+    const attempts = [
+      ['--js-runtimes', 'node'],
+      ['--extractor-args', 'youtube:player_client=tv,ios'],
+      ['--extractor-args', 'youtube:player_client=mweb,web_safari'],
+      ['--extractor-args', 'youtube:player_client=android_vr']
+    ]
+    let lastError
+    for (const [i, flags] of attempts.entries()) {
+      try {
+        await runBinary(bin, [...flags, ...extra, ...baseArgs, videoUrl])
+        lastError = null
+        break
+      } catch (err) {
+        lastError = err
+        console.warn(`[PLAY] yt-dlp attempt ${i + 1} failed:`, short(err))
+        for (const f of fs.readdirSync(dir)) if (f.startsWith('src.')) fs.rmSync(path.join(dir, f), { force: true })
+      }
+    }
+    if (lastError) throw lastError
     const file = fs.readdirSync(dir).find(f => f.startsWith('src.'))
     if (!file) throw new Error('yt-dlp produced no file')
     const src = path.join(dir, file)
