@@ -143,23 +143,54 @@ const runFfmpeg = (bin, input, output) => new Promise((resolve, reject) => {
     { timeout: 90000 }, err => (err ? reject(err) : resolve()))
 })
 
+// The npm yt-dlp wrapper needs Python, which Heroku doesn't have. Instead we download yt-dlp's
+// standalone Linux binary once (it bundles its own Python) and run that directly.
+const YTDLP_URL = process.arch === 'arm64'
+  ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64'
+  : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux'
+let ytDlpReady = null
+
+async function ensureYtDlp() {
+  if (process.env.YTDLP_BIN) return process.env.YTDLP_BIN
+  if (process.platform !== 'linux') throw new Error('standalone yt-dlp is only set up for Linux hosts')
+  const bin = path.join(os.tmpdir(), 'yt-dlp_standalone')
+  if (fs.existsSync(bin) && fs.statSync(bin).size > 5 * 1048576) return bin
+  if (!ytDlpReady) {
+    ytDlpReady = (async () => {
+      console.log('[PLAY] downloading yt-dlp binary (one time)…')
+      const r = await axios.get(YTDLP_URL, {
+        responseType: 'arraybuffer', timeout: 120000, maxContentLength: 120 * 1048576, headers: { 'User-Agent': UA }
+      })
+      const tmp = `${bin}.part`
+      fs.writeFileSync(tmp, Buffer.from(r.data))
+      fs.chmodSync(tmp, 0o755)
+      fs.renameSync(tmp, bin)
+      return bin
+    })().finally(() => { ytDlpReady = null })
+  }
+  return ytDlpReady
+}
+
+const runBinary = (bin, args) => new Promise((resolve, reject) => {
+  execFile(bin, args, { timeout: 100000, maxBuffer: 8 * 1048576 }, (err, stdout, stderr) => {
+    if (err) reject(new Error(String(stderr || err.message).split('\n').filter(Boolean).pop() || err.message))
+    else resolve()
+  })
+})
+
 async function viaYtDlp(videoUrl) {
-  const { default: ytdl } = await import('youtube-dl-exec')
+  const bin = await ensureYtDlp()
   let ffmpegPath = null
   try { ffmpegPath = (await import('ffmpeg-static')).default } catch {}
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'play-'))
   try {
-    const base = {
-      format: 'bestaudio[ext=m4a]/bestaudio/best',
-      output: path.join(dir, 'src.%(ext)s'),
-      noPlaylist: true, noWarnings: true, noProgress: true
-    }
-    const opts = { timeout: 90000, killSignal: 'SIGKILL' }
-    try { await ytdl(videoUrl, { ...base, jsRuntimes: 'node' }, opts) }
+    const args = ['-f', 'bestaudio[ext=m4a]/bestaudio/best', '-o', path.join(dir, 'src.%(ext)s'),
+      '--no-playlist', '--no-warnings', '--no-progress', videoUrl]
+    try { await runBinary(bin, ['--js-runtimes', 'node', ...args]) }
     catch (first) {
       console.warn('[PLAY] yt-dlp attempt 1 failed:', short(first))
       for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { force: true })
-      await ytdl(videoUrl, base, opts)
+      await runBinary(bin, args)
     }
     const file = fs.readdirSync(dir).find(f => f.startsWith('src.'))
     if (!file) throw new Error('yt-dlp produced no file')
