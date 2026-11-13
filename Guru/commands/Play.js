@@ -12,8 +12,9 @@ const UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, 
 const LINE = '═══════════════════════'
 
 const DEFAULT_APIS = [
+  // Silva MD's source: reply holds result.download_url
+  'https://apis.davidcyriltech.my.id/download/ytmp3?url={url}',
   'https://noobs-api.top/dipto/ytDl3?link={id}&format=mp3',
-  'https://apis.davidcyriltech.my.id/youtube/mp3?url={url}',
   'https://api.ryzendesu.vip/api/downloader/ytmp3?url={url}',
   'https://eliteprotech-apis.zone.id/ytmp3?url={url}',
   'https://api.siputzx.my.id/api/d/ytmp3?url={url}'
