@@ -1,5 +1,9 @@
 import yts from 'yt-search'
 import axios from 'axios'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { execFile } from 'child_process'
 
 // Same download method as GURU MINI BOT: try each free API in order, pick the best
 // media link from its reply, download it, and send it as WhatsApp audio.
@@ -9,10 +13,10 @@ const LINE = '══════════════════════
 
 const DEFAULT_APIS = [
   'https://noobs-api.top/dipto/ytDl3?link={id}&format=mp3',
-  'https://api.siputzx.my.id/api/d/ytmp3?url={url}',
   'https://apis.davidcyriltech.my.id/youtube/mp3?url={url}',
-  'https://api.giftedtech.co.ke/api/download/ytmp3?apikey=gifted&url={url}',
-  'https://api.agatz.xyz/api/ytmp3?url={url}'
+  'https://api.ryzendesu.vip/api/downloader/ytmp3?url={url}',
+  'https://eliteprotech-apis.zone.id/ytmp3?url={url}',
+  'https://api.siputzx.my.id/api/d/ytmp3?url={url}'
 ]
 
 const audioApis = () => {
@@ -87,16 +91,24 @@ async function viaProviders(vars) {
 const SPORTIFY_BASE = (process.env.SPORTIFY_API || 'https://sportify.xcasper.space').replace(/\/+$/, '')
 
 function findTrackNode(node, depth = 0) {
-  if (!node || depth > 6) return null
+  if (!node || depth > 7) return null
   if (Array.isArray(node)) {
     for (const item of node) { const f = findTrackNode(item, depth + 1); if (f) return f }
     return null
   }
   if (typeof node === 'object') {
-    if (typeof node.name === 'string' && (Array.isArray(node.artists) || node.artists?.items)) return node
+    const hasName = typeof node.name === 'string' || typeof node.title === 'string'
+    const hasArtist = node.artists || node.artist || node.artistName
+    if (hasName && hasArtist) return node
     for (const k of Object.keys(node)) { const f = findTrackNode(node[k], depth + 1); if (f) return f }
   }
   return null
+}
+
+const artistNames = t => {
+  const raw = t.artists ?? t.artist ?? t.artistName
+  const list = Array.isArray(raw) ? raw : (raw?.items || [raw])
+  return list.map(a => (typeof a === 'string' ? a : a?.name)).filter(Boolean).join(', ')
 }
 
 async function sportifySearch(query) {
@@ -106,20 +118,65 @@ async function sportifySearch(query) {
     headers: { 'User-Agent': UA, Accept: 'application/json' }
   })
   const t = findTrackNode(res.data)
-  if (!t) throw new Error('no track in reply')
-  const artistList = Array.isArray(t.artists) ? t.artists : (t.artists?.items || [])
+  if (!t) {
+    // Log the real reply shape so the parser can be matched to it.
+    console.warn('[PLAY] Sportify raw reply:', JSON.stringify(res.data).slice(0, 600))
+    throw new Error('no track in reply')
+  }
   const images = t.album?.images || t.images || []
+  const ms = t.duration_ms || t.durationMs || 0
   return {
-    title: t.name,
-    artist: artistList.map(a => a.name || a).filter(Boolean).join(', ') || 'Unknown',
-    album: t.album?.name || '',
-    seconds: t.duration_ms ? Math.round(t.duration_ms / 1000) : 0,
-    cover: images[0]?.url || '',
-    spotifyUrl: t.external_urls?.spotify || (t.id ? `https://open.spotify.com/track/${t.id}` : '')
+    title: t.name || t.title,
+    artist: artistNames(t) || 'Unknown',
+    album: (typeof t.album === 'string' ? t.album : t.album?.name) || '',
+    seconds: ms ? Math.round(ms / 1000) : Math.round(Number(t.duration) || 0),
+    cover: images[0]?.url || t.image || t.cover || t.thumbnail || '',
+    spotifyUrl: t.external_urls?.spotify || t.url || (t.id ? `https://open.spotify.com/track/${t.id}` : '')
   }
 }
 
 const fmtTime = sec => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
+
+// ---------------------------------------------------------------- local fallback (yt-dlp)
+const runFfmpeg = (bin, input, output) => new Promise((resolve, reject) => {
+  execFile(bin, ['-y', '-i', input, '-vn', '-acodec', 'libmp3lame', '-b:a', '128k', output],
+    { timeout: 90000 }, err => (err ? reject(err) : resolve()))
+})
+
+async function viaYtDlp(videoUrl) {
+  const { default: ytdl } = await import('youtube-dl-exec')
+  let ffmpegPath = null
+  try { ffmpegPath = (await import('ffmpeg-static')).default } catch {}
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'play-'))
+  try {
+    const base = {
+      format: 'bestaudio[ext=m4a]/bestaudio/best',
+      output: path.join(dir, 'src.%(ext)s'),
+      noPlaylist: true, noWarnings: true, noProgress: true
+    }
+    const opts = { timeout: 90000, killSignal: 'SIGKILL' }
+    try { await ytdl(videoUrl, { ...base, jsRuntimes: 'node' }, opts) }
+    catch (first) {
+      console.warn('[PLAY] yt-dlp attempt 1 failed:', short(first))
+      for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { force: true })
+      await ytdl(videoUrl, base, opts)
+    }
+    const file = fs.readdirSync(dir).find(f => f.startsWith('src.'))
+    if (!file) throw new Error('yt-dlp produced no file')
+    const src = path.join(dir, file)
+    const ext = path.extname(file).slice(1).toLowerCase()
+    if (ffmpegPath && ext !== 'mp3') {
+      const out = path.join(dir, 'out.mp3')
+      await runFfmpeg(ffmpegPath, src, out)
+      return { buffer: fs.readFileSync(out), mime: 'audio/mpeg', ext: 'mp3', source: 'yt-dlp+ffmpeg' }
+    }
+    const mimeByExt = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac' }
+    if (!mimeByExt[ext]) throw new Error(`got .${ext} but ffmpeg is unavailable`)
+    return { buffer: fs.readFileSync(src), mime: mimeByExt[ext], ext, source: 'yt-dlp' }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
 
 async function findVideo(query, targetSeconds = 0) {
   const m = query.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/)
@@ -194,14 +251,30 @@ export async function runPlay({ sock, from, text, msg, config }) {
   }
 
   try {
-    const { buffer, source } = await viaProviders({ url: video.url, id: video.videoId })
-    console.log(`[PLAY] audio via ${source} (${(buffer.length / 1048576).toFixed(1)} MB)`)
+    let audio
+    const problems = []
+    try {
+      const r = await viaProviders({ url: video.url, id: video.videoId })
+      audio = { buffer: r.buffer, mime: 'audio/mpeg', ext: 'mp3', source: r.source }
+    } catch (apiError) {
+      problems.push(...(apiError.attempts || [short(apiError)]))
+      console.warn('[PLAY] all APIs failed, trying yt-dlp:', problems.join(' | '))
+      try { audio = await viaYtDlp(video.url) }
+      catch (ytError) {
+        problems.push(`yt-dlp: ${short(ytError)}`)
+        const err = new Error('all download sources failed')
+        err.attempts = problems
+        throw err
+      }
+    }
+    const { buffer, mime, ext, source } = audio
     const mb = buffer.length / 1048576
-    const fileName = `${(meta ? `${meta.artist} - ${meta.title}` : title).replace(/[\\/:*?"<>|]/g, '')}.mp3`
+    console.log(`[PLAY] audio via ${source} (${mb.toFixed(1)} MB)`)
+    const fileName = `${(meta ? `${meta.artist} - ${meta.title}` : title).replace(/[\\/:*?"<>|]/g, '')}.${ext}`
     if (mb <= 16) {
-      await sock.sendMessage(from, { audio: buffer, mimetype: 'audio/mpeg', fileName }, q)
+      await sock.sendMessage(from, { audio: buffer, mimetype: mime, fileName }, q)
     } else if (mb <= 90) {
-      await sock.sendMessage(from, { document: buffer, mimetype: 'audio/mpeg', fileName }, q)
+      await sock.sendMessage(from, { document: buffer, mimetype: mime, fileName }, q)
     } else {
       throw new Error('file is too large to send')
     }
