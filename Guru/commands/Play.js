@@ -1,375 +1,164 @@
 import yts from 'yt-search'
 import axios from 'axios'
-import { API_CONFIG, MESSAGES } from '../france/index.js'
-import ffmpegStatic from 'ffmpeg-static'
-import fs from 'fs'
-import os from 'os'
-import path from 'path'
-import { spawnSync, execFile } from 'child_process'
-import { promisify } from 'util'
 
-const execFileAsync = promisify(execFile)
-const MAX_SOURCE_BYTES = 80 * 1024 * 1024
-const MAX_WHATSAPP_AUDIO_BYTES = 15 * 1024 * 1024
-// Both hosted sources are now requested in parallel (see runPlay), so this no
-// longer needs to leave room for a second serial attempt — it's the ceiling
-// for either one individually.
-const PLAY_API_TIMEOUT_MS = 10000
-const PLAY_DOWNLOAD_TIMEOUT_MS = 45000
+// Same download method as GURU MINI BOT: try each free API in order, pick the best
+// media link from its reply, download it, and send it as WhatsApp audio.
+// Override the list with the config var YT_AUDIO_APIS (comma separated, {url} / {id} placeholders).
+const UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36'
+const LINE = '═══════════════════════'
 
-function findFfmpegPath() {
-  const candidates = [ffmpegStatic, 'ffmpeg', '/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg'].filter(Boolean)
-  for (const candidate of candidates) {
-    const result = spawnSync(candidate, ['-version'], { stdio: 'ignore' })
-    if (!result.error && result.status === 0) return candidate
+const DEFAULT_APIS = [
+  'https://noobs-api.top/dipto/ytDl3?link={id}&format=mp3',
+  'https://api.siputzx.my.id/api/d/ytmp3?url={url}',
+  'https://apis.davidcyriltech.my.id/youtube/mp3?url={url}',
+  'https://api.giftedtech.co.ke/api/download/ytmp3?apikey=gifted&url={url}',
+  'https://api.agatz.xyz/api/ytmp3?url={url}'
+]
+
+const audioApis = () => {
+  const fromEnv = process.env.YT_AUDIO_APIS
+  return fromEnv ? fromEnv.split(',').map(s => s.trim()).filter(Boolean) : DEFAULT_APIS
+}
+
+const short = e => String((e && e.message) || e || 'error').replace(/\s+/g, ' ').slice(0, 90)
+const clip = (s, n) => (String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s))
+const hostOf = u => { try { return new URL(u.replace('{url}', 'x').replace('{id}', 'x')).hostname } catch { return 'source' } }
+
+function collectUrls(o, out = [], key = '') {
+  if (typeof o === 'string') { if (/^https?:\/\//i.test(o)) out.push({ key, url: o }) }
+  else if (Array.isArray(o)) o.forEach(v => collectUrls(v, out, key))
+  else if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) collectUrls(v, out, k)
+  return out
+}
+
+function pickAudio(data) {
+  const all = collectUrls(data).filter(x =>
+    !/\.(jpe?g|png|webp|gif)(\?|$)/i.test(x.url) && !/thumb|cover|avatar|poster|image|icon/i.test(x.key))
+  const score = x => {
+    const k = x.key.toLowerCase(); const u = x.url.toLowerCase(); let s = 0
+    if (/download|dl|link|url|play|hd|nowm|source/.test(k)) s += 2
+    if (/\.(mp3|m4a|opus|ogg|aac)/.test(u) || /audio|mp3/.test(k)) s += 4
+    return s
   }
-  return null
+  all.sort((a, b) => score(b) - score(a))
+  return all.length ? all[0].url : null
 }
 
-const FFMPEG_PATH = findFfmpegPath()
-
-function safeFileName(value) {
-  return String(value || 'song')
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 96) || 'song'
+async function downloadAudio(link, minBytes = 30000) {
+  const r = await axios.get(link, {
+    responseType: 'arraybuffer',
+    timeout: 90000,
+    maxContentLength: 64 * 1024 * 1024,
+    maxBodyLength: 64 * 1024 * 1024,
+    headers: { 'User-Agent': UA }
+  })
+  const buffer = Buffer.from(r.data)
+  const type = String(r.headers['content-type'] || '').split(';')[0].toLowerCase()
+  if (/text\/html|application\/json|text\/plain/.test(type)) throw new Error('link returned a web page')
+  if (buffer.length < minBytes) throw new Error('file too small')
+  return buffer
 }
 
-function safeDisplay(value, fallback = 'N/A') {
-  return String(value || fallback).replace(/[\r\n]+/g, ' ').trim().slice(0, 160) || fallback
-}
-
-function safeErrorSummary(error) {
-  return String(error?.stderr || error?.message || 'Unknown error')
-    .replace(/https?:\/\/[^\s\"')]+/gi, '[URL]')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 400)
-}
-
-function extractAudioSource(payload) {
-  const candidates = [
-    payload?.audio,
-    payload?.audioUrl,
-    payload?.audio_url,
-    payload?.downloadUrl,
-    payload?.download_url,
-    payload?.mp3,
-    payload?.url
-  ]
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
-    if (candidate && typeof candidate === 'object') {
-      const url = candidate.url || candidate.downloadUrl || candidate.download_url || candidate.link
-      if (typeof url === 'string' && url.trim()) return url.trim()
-      if (Buffer.isBuffer(candidate.data) || candidate.data instanceof Uint8Array) return candidate.data
-      if (typeof candidate.base64 === 'string') return `data:audio/mpeg;base64,${candidate.base64}`
-    }
-  }
-  return null
-}
-
-function extensionFrom(source, contentType) {
-  const mime = String(contentType || '').split(';')[0].toLowerCase()
-  let ext = ''
-  if (typeof source === 'string') {
-    if (source.startsWith('data:')) {
-      const match = source.match(/^data:([^;,]+)/i)
-      if (match?.[1]) return extensionFromMime(match[1])
-    }
+async function viaProviders(vars) {
+  const attempts = []
+  for (const tpl of audioApis()) {
+    const host = hostOf(tpl)
     try {
-      ext = path.extname(new URL(source).pathname).slice(1).toLowerCase()
-    } catch {
-      ext = path.extname(source).slice(1).toLowerCase()
-    }
+      const api = tpl
+        .replace(/\{url\}/g, encodeURIComponent(vars.url || ''))
+        .replace(/\{id\}/g, encodeURIComponent(vars.id || ''))
+      const res = await axios.get(api, {
+        timeout: 25000,
+        headers: { 'User-Agent': UA, Accept: 'application/json,*/*' }
+      })
+      const link = pickAudio(res.data)
+      if (!link) throw new Error('no download link in reply')
+      const buffer = await downloadAudio(link)
+      return { buffer, source: host }
+    } catch (e) { attempts.push(`${host}: ${short(e)}`) }
   }
-  if (['mp3', 'm4a', 'aac', 'ogg', 'opus', 'wav', 'webm', 'mp4'].includes(ext)) return ext
-  return extensionFromMime(mime) || 'bin'
+  const err = new Error('all download sources failed')
+  err.attempts = attempts
+  throw err
 }
 
-function extensionFromMime(mime) {
-  const value = String(mime || '').toLowerCase()
-  if (value.includes('mpeg') || value.includes('audio/mp3')) return 'mp3'
-  if (value.includes('ogg') || value.includes('opus')) return 'ogg'
-  if (value.includes('mp4') || value.includes('m4a')) return 'm4a'
-  if (value.includes('wav')) return 'wav'
-  if (value.includes('aac')) return 'aac'
-  if (value.includes('webm')) return 'webm'
-  return ''
+async function findVideo(query) {
+  const m = query.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/)
+  if (m) {
+    try { const v = await yts({ videoId: m[1] }); if (v) return v } catch { /* fall through to search */ }
+  }
+  const r = await yts(query)
+  const vids = r.videos || []
+  return vids.find(x => x.seconds && x.seconds <= 1800) || vids[0] || null
 }
 
-async function loadAudio(source, httpGet, timeout) {
-  if (Buffer.isBuffer(source) || source instanceof Uint8Array) {
-    return { buffer: Buffer.from(source), contentType: 'audio/mpeg', source }
-  }
-  if (typeof source !== 'string') throw new Error('Audio source is not a supported URL or buffer.')
-
-  const dataUri = source.match(/^data:([^;,]+)?;base64,(.+)$/i)
-  if (dataUri) {
-    return {
-      buffer: Buffer.from(dataUri[2], 'base64'),
-      contentType: dataUri[1] || 'audio/mpeg',
-      source
-    }
-  }
-
-  if (/^https?:\/\//i.test(source)) {
-    const response = await httpGet(source, {
-      responseType: 'arraybuffer',
-      timeout,
-      maxContentLength: MAX_SOURCE_BYTES,
-      maxBodyLength: MAX_SOURCE_BYTES,
-      headers: { 'User-Agent': 'Mozilla/5.0 ULTRA-GURU' }
-    })
-    const buffer = Buffer.from(response.data)
-    return { buffer, contentType: response.headers?.['content-type'] || '', source }
-  }
-
-  if (/^[A-Za-z0-9+/]+={0,2}$/.test(source) && source.length > 256) {
-    return { buffer: Buffer.from(source, 'base64'), contentType: 'audio/mpeg', source }
-  }
-  throw new Error('Audio download link was not valid.')
+// Mini-bot card layout. The footer line starts with "> " so WhatsApp shows it in the grey quote style.
+function card(title, rows, footer) {
+  return `*⚙️ ${title}*\n\n╔${LINE}\n${rows.map(r => '║ ' + r).join('\n')}\n╚${LINE}\n\n> ${footer}`
 }
 
-async function downloadWithYtDlp(videoUrl, tempDir, dependencies = {}) {
-  let ytDlp = dependencies.ytDlp
-  if (!ytDlp) {
-    const module = await import('youtube-dl-exec')
-    ytDlp = module.default || module
-  }
-  const run = typeof ytDlp.exec === 'function' ? ytDlp.exec.bind(ytDlp) : ytDlp
-  if (typeof run !== 'function') throw new Error('Local audio downloader is unavailable.')
-
-  const outputTemplate = path.join(tempDir, 'yt-dlp-source.%(ext)s')
-  const baseFlags = {
-    format: 'bestaudio[ext=m4a]/bestaudio/best',
-    output: outputTemplate,
-    noPlaylist: true,
-    noWarnings: true,
-    noProgress: true,
-    restrictFilenames: true
-  }
-  const execOptions = { timeout: 60000, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024 }
-  try {
-    await run(videoUrl, { ...baseFlags, jsRuntimes: 'node' }, execOptions)
-  } catch (firstError) {
-    // Older yt-dlp builds don't know --js-runtimes and fail instantly; retry plain.
-    console.warn('[PLAY] yt-dlp first attempt failed:', safeErrorSummary(firstError))
-    for (const name of fs.readdirSync(tempDir)) fs.rmSync(path.join(tempDir, name), { force: true })
-    await run(videoUrl, baseFlags, execOptions)
-  }
-
-  const downloaded = fs.readdirSync(tempDir).find(name =>
-    name.startsWith('yt-dlp-source.') && !name.endsWith('.part')
-  )
-  if (!downloaded) throw new Error('Local audio downloader produced no file.')
-  return path.join(tempDir, downloaded)
-}
-
-async function transcodeToMp3(inputPath, outputPath, ffmpegPath, runFile) {
-  await runFile(ffmpegPath, [
-    '-y', '-i', inputPath, '-vn',
-    '-c:a', 'libmp3lame', '-b:a', '128k', '-ar', '44100', '-ac', '2',
-    '-f', 'mp3', outputPath
-  ], { timeout: 90000, maxBuffer: 4 * 1024 * 1024 })
-}
-
-export async function runPlay({ sock, from, text, msg, config }, dependencies = {}) {
-  const botName = config?.BOT_NAME || 'ULTRA GURU'
-  const ownerName = config?.OWNER_NAME || 'GuruTech'
-  const messages = MESSAGES?.play || {}
+export async function runPlay({ sock, from, text, msg, config }) {
+  const footer = config?.BOT_FOOTER || `Powered by ${config?.OWNER_NAME || 'GuruTech'}`
+  const q = { quoted: msg }
+  const react = async emoji => { try { await sock.sendMessage(from, { react: { text: emoji, key: msg.key } }) } catch {} }
   const query = String(text || '').trim()
-  const search = dependencies.search || yts
-  const http = dependencies.http || axios
-  const httpGet = http.get.bind(http)
-  const apiConfig = dependencies.apiConfig || API_CONFIG
-  const ffmpegPath = Object.hasOwn(dependencies, 'ffmpegPath') ? dependencies.ffmpegPath : FFMPEG_PATH
-  const runFile = dependencies.execFile || execFileAsync
-  const configuredTimeout = Number(apiConfig?.nayanApi?.timeout) || PLAY_API_TIMEOUT_MS
-  const timeout = Math.min(configuredTimeout, PLAY_API_TIMEOUT_MS)
-  const downloadTimeout = PLAY_DOWNLOAD_TIMEOUT_MS
-  let tempDir
 
   if (!query) {
     return sock.sendMessage(from, {
-      text: messages.noQuery || '🎵 Send a song title or YouTube link. Example: .play song name'
-    }, { quoted: msg })
+      text: card('ᴜsᴀɢᴇ', ['🔣 *.play* <song name or YouTube link>', '💡 .play Sauti Sol Melanin'], footer)
+    }, q)
   }
 
-  const playStartedAt = Date.now()
-  console.log(`[PLAY] received query="${query.slice(0, 120)}"`)
+  await react('🎵')
+  let video
+  try { video = await findVideo(query) } catch (e) {
+    console.error('[PLAY] search failed:', short(e))
+    return sock.sendMessage(from, { text: '❌ YouTube search failed. Try again in a moment.' }, q)
+  }
+  if (!video) return sock.sendMessage(from, { text: '❌ No results found. Try different words.' }, q)
+
+  const title = video.title || query
+  const rows = [
+    `🎧 *ᴛɪᴛʟᴇ* ➜ ${clip(title, 60)}`,
+    `⏳ *ᴅᴜʀᴀᴛɪᴏɴ* ➜ ${video.timestamp || video.duration?.timestamp || '?'}`,
+    `👁️ *ᴠɪᴇᴡs* ➜ ${Number(video.views || 0).toLocaleString()}`,
+    `📺 *ᴄʜᴀɴɴᴇʟ* ➜ ${clip(video.author?.name || 'Unknown', 40)}`,
+    `🔗 ${video.url}`
+  ]
+  const caption = card('ɴᴏᴡ ᴘʟᴀʏɪɴɢ', rows, footer)
+  const thumb = video.thumbnail || video.image
+  try {
+    if (thumb) await sock.sendMessage(from, { image: { url: thumb }, caption }, q)
+    else await sock.sendMessage(from, { text: caption }, q)
+  } catch {
+    try { await sock.sendMessage(from, { text: caption }, q) } catch {}
+  }
 
   try {
-    await sock.sendMessage(from, { text: '🔎 Searching for your song…' }, { quoted: msg })
-    const results = await search(query)
-    const video = results?.videos?.[0]
-    if (!video) {
-      return sock.sendMessage(from, {
-        text: messages.noResults || '❌ No matching song was found. Try another title.'
-      }, { quoted: msg })
-    }
-
-    const videoUrl = video.url || `https://www.youtube.com/watch?v=${video.videoId}`
-    const displayTitle = safeDisplay(video.title || query, 'Unknown song')
-    const channel = safeDisplay(video.author?.name, 'Unknown')
-    const duration = safeDisplay(video.timestamp, 'N/A')
-    const thumbnail = video.thumbnail ||
-      (video.videoId ? `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg` : '') ||
-      config?.BOT_PIC || ''
-    // Every line starts with "> " so WhatsApp keeps rendering it as the grey quote block.
-    const previewCaption = [
-      `> 🔥 *${botName}* · _MUSIC PLAYER_`,
-      '> ┌──────────┬──────────────',
-      '> │ *Field* │ *Details*',
-      '> ├──────────┼──────────────',
-      `> │ 🎵 Title │ ${displayTitle}`,
-      '> ├──────────┼──────────────',
-      `> │ 👤 Channel │ ${channel}`,
-      '> ├──────────┼──────────────',
-      `> │ ⏱️ Duration │ ${duration}`,
-      '> ├──────────┼──────────────',
-      '> │ 🔊 Audio │ MP3 · 128 kbps',
-      '> └──────────┴──────────────',
-      `> ✨ _Powered by ${ownerName}_`
-    ].join('\n')
-    const previewWithStatus = `${previewCaption}\n> ⏳ _Preparing the audio…_`
-    try {
-      if (thumbnail) {
-        await sock.sendMessage(from, { image: { url: thumbnail }, caption: previewWithStatus }, { quoted: msg })
-      } else {
-        await sock.sendMessage(from, { text: previewWithStatus }, { quoted: msg })
-      }
-    } catch (previewError) {
-      console.warn('[PLAY] Preview send failed:', previewError.message)
-      try { await sock.sendMessage(from, { text: previewWithStatus }, { quoted: msg }) } catch {}
-    }
-
-    // Both free sources are hit AT THE SAME TIME instead of one after the
-    // other — whichever answers first with usable audio wins. This is what
-    // actually makes .play faster: the old code could burn up to ~36s
-    // retrying the first source twice before even trying the second.
-    const raceStartedAt = Date.now()
-    const audioRaceTimeout = timeout
-
-    async function fetchFromNayan() {
-      const endpoint = apiConfig?.nayanApi?.youtube
-      if (!endpoint) throw new Error('Hosted downloader (nayanApi) is not configured.')
-      const downloadApiUrl = new URL(endpoint)
-      downloadApiUrl.searchParams.set('url', videoUrl)
-      const apiResponse = await httpGet(downloadApiUrl.toString(), {
-        timeout: audioRaceTimeout,
-        maxContentLength: 4 * 1024 * 1024,
-        headers: { 'User-Agent': 'Mozilla/5.0 ULTRA-GURU' }
-      })
-      const responseBody = apiResponse.data
-      const sourcePayload = responseBody?.data?.data || responseBody?.data || responseBody?.result || responseBody || {}
-      const audioSource = extractAudioSource(sourcePayload)
-      if (!audioSource || responseBody?.status === false || responseBody?.success === false) {
-        throw new Error('nayanApi: no audio returned.')
-      }
-      const loaded = await loadAudio(audioSource, httpGet, downloadTimeout)
-      return { ...loaded, payload: sourcePayload, via: 'nayanApi' }
-    }
-
-    async function fetchFromNoobs() {
-      if (!video.videoId) throw new Error('noobsApi: no video id to look up.')
-      const miniApiUrl = new URL('https://noobs-api.top/dipto/ytDl3')
-      miniApiUrl.searchParams.set('link', video.videoId)
-      miniApiUrl.searchParams.set('format', 'mp3')
-      const miniApiResponse = await httpGet(miniApiUrl.toString(), {
-        timeout: audioRaceTimeout,
-        maxContentLength: 4 * 1024 * 1024,
-        headers: { 'User-Agent': 'Mozilla/5.0 ULTRA-GURU', 'Accept': 'application/json' }
-      })
-      const miniApiPayload = miniApiResponse.data
-      const miniAudioSource = miniApiPayload?.downloadLink
-      if (!miniAudioSource) throw new Error('noobsApi: no download link returned.')
-      const loaded = await loadAudio(miniAudioSource, httpGet, downloadTimeout)
-      return { ...loaded, payload: { title: miniApiPayload?.title }, via: 'noobsApi' }
-    }
-
-    let payload = {}
-    let audioResult = null
-    let raceError = null
-    try {
-      const winner = await Promise.any([fetchFromNayan(), fetchFromNoobs()])
-      audioResult = winner
-      payload = winner.payload || {}
-      console.log(`[PLAY] audio source=${winner.via} elapsedMs=${Date.now() - raceStartedAt}`)
-    } catch (aggregateError) {
-      raceError = aggregateError
-      const summaries = (aggregateError.errors || [aggregateError]).map(e => safeErrorSummary(e))
-      console.warn('[PLAY] Both hosted audio sources failed:', summaries.join(' | '))
-    }
-
-    let audioBuffer
-    let sourceReference
-    let sourceContentType = ''
-    let localSourcePath = null
-    if (audioResult?.buffer?.length) {
-      audioBuffer = audioResult.buffer
-      sourceReference = audioResult.source
-      sourceContentType = audioResult.contentType
+    const { buffer, source } = await viaProviders({ url: video.url, id: video.videoId })
+    console.log(`[PLAY] audio via ${source} (${(buffer.length / 1048576).toFixed(1)} MB)`)
+    const mb = buffer.length / 1048576
+    const fileName = `${title.replace(/[\\/:*?"<>|]/g, '')}.mp3`
+    if (mb <= 16) {
+      await sock.sendMessage(from, { audio: buffer, mimetype: 'audio/mpeg', fileName }, q)
+    } else if (mb <= 90) {
+      await sock.sendMessage(from, { document: buffer, mimetype: 'audio/mpeg', fileName }, q)
     } else {
-      console.warn('[PLAY] Both hosted audio sources unavailable; trying local fallback.')
-      await sock.sendMessage(from, { text: '⏳ Trying the local audio fallback…' }, { quoted: msg })
-      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ultra-guru-play-'))
-      localSourcePath = await downloadWithYtDlp(videoUrl, tempDir, dependencies)
-      audioBuffer = fs.readFileSync(localSourcePath)
-      sourceReference = localSourcePath
+      throw new Error('file is too large to send')
     }
-
-    if (!audioBuffer.length || audioBuffer.length > MAX_SOURCE_BYTES) {
-      throw new Error('The downloaded audio is empty or too large.')
-    }
-
-    const title = safeFileName(payload?.title || video.title || query)
-    let audioFileName = `${title}.mp3`
-    let audioMime = 'audio/mpeg'
-    if (ffmpegPath) {
-      tempDir ||= fs.mkdtempSync(path.join(os.tmpdir(), 'ultra-guru-play-'))
-      const inputPath = localSourcePath || path.join(tempDir, `source.${extensionFrom(sourceReference, sourceContentType)}`)
-      const outputPath = path.join(tempDir, 'audio.mp3')
-      if (!localSourcePath) fs.writeFileSync(inputPath, audioBuffer)
-      await transcodeToMp3(inputPath, outputPath, ffmpegPath, runFile)
-      audioBuffer = fs.readFileSync(outputPath)
-    } else {
-      // No ffmpeg on this host: send the audio as-is if WhatsApp can play it.
-      const rawExt = extensionFrom(sourceReference, sourceContentType)
-      const mimeByExt = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', opus: 'audio/ogg' }
-      if (!mimeByExt[rawExt]) throw new Error('MP3 conversion is unavailable on this deployment.')
-      audioMime = mimeByExt[rawExt]
-      audioFileName = `${title}.${rawExt}`
-    }
-
-    if (!audioBuffer.length || audioBuffer.length > MAX_WHATSAPP_AUDIO_BYTES) {
-      throw new Error('The finished audio exceeds WhatsApp’s 15 MB audio-message limit.')
-    }
-
+    await react('✅')
+  } catch (e) {
+    console.error('[PLAY] failed:', (e.attempts || [short(e)]).join(' | '))
     await sock.sendMessage(from, {
-      audio: audioBuffer,
-      mimetype: audioMime,
-      fileName: audioFileName,
-      ptt: false
-    }, { quoted: msg })
-    console.log(`[PLAY] sent title="${safeDisplay(video.title || query, query)}" elapsedMs=${Date.now() - playStartedAt}`)
-  } catch (error) {
-    console.error(`[PLAY] Song request failed elapsedMs=${Date.now() - playStartedAt}:`, safeErrorSummary(error))
-    const errorText = /timeout|timed out|ETIMEDOUT|ECONNABORTED/i.test(error.message)
-      ? (messages.timeout || '⏱️ The song service timed out. Please try again.')
-      : (messages.error || '❌ Could not prepare that song right now. Please try again later.')
-    console.error('[PLAY] FULL ERROR:', error?.stack || error)
-    await sock.sendMessage(from, { text: errorText }, { quoted: msg })
-  } finally {
-    if (tempDir && fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
+      text: `❌ I found the song but every download source failed right now.\n\n🔗 ${video.url}\n\n_Try again in a minute. You can also add fresh sources with the config var YT_AUDIO_APIS._`
+    }, q)
   }
 }
 
 export const commands = [
   {
     name: 'play',
-    description: 'Search for a song and send its cover preview plus WhatsApp-playable MP3 audio.',
+    description: 'Search YouTube and send the song as audio.',
     category: 'Search',
     execute: runPlay
   }
