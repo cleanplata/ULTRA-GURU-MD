@@ -92,6 +92,46 @@ async function findVideo(query) {
   return vids.find(x => x.seconds && x.seconds <= 1800) || vids[0] || null
 }
 
+const SPORTIFY_API = (process.env.SPORTIFY_API_URL || 'https://sportify.xcasper.space/api').replace(/\/$/, '')
+
+function spotifyTrackFrom(data) {
+  const raw = data?.track || data?.result || data?.data?.track || data?.data || data
+  if (!raw || typeof raw !== 'object') return null
+  const track = {
+    id: raw.id,
+    title: raw.title || raw.name,
+    artist: raw.artist || raw.artists?.map?.(item => typeof item === 'string' ? item : item.name).filter(Boolean).join(', '),
+    album: raw.album?.name || raw.album,
+    url: raw.url || raw.external_urls?.spotify,
+    thumbnail: raw.thumbnail || raw.album?.images?.[0]?.url || raw.images?.[0]?.url,
+    duration: raw.duration || raw.duration_ms && `${Math.floor(raw.duration_ms / 60000)}:${String(Math.floor(raw.duration_ms / 1000) % 60).padStart(2, '0')}`
+  }
+  return track.title && track.artist ? track : null
+}
+
+export async function searchSportify(query) {
+  const spotifyUrl = String(query).match(/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\/([\w]+)/i)
+  try {
+    if (spotifyUrl) {
+      const response = await axios.get(`${SPORTIFY_API}/track/${encodeURIComponent(spotifyUrl[1])}`, {
+        timeout: 12000, headers: { 'User-Agent': UA, Accept: 'application/json' }
+      })
+      const track = spotifyTrackFrom(response.data)
+      if (track) return track
+    }
+    const response = await axios.get(`${SPORTIFY_API}/search`, {
+      params: { q: query, type: 'track', limit: 1, offset: 0 },
+      timeout: 12000, headers: { 'User-Agent': UA, Accept: 'application/json' }
+    })
+    const data = response.data
+    if (data?.success === false) return null
+    return spotifyTrackFrom(data?.results?.[0] || data?.tracks?.items?.[0] || data?.results?.tracks?.items?.[0])
+  } catch (error) {
+    console.warn('[PLAY] Sportify metadata unavailable; using YouTube search:', short(error))
+    return null
+  }
+}
+
 // Mini-bot card layout. The footer line starts with "> " so WhatsApp shows it in the grey quote style.
 function card(title, rows, footer) {
   return `*⚙️ ${title}*\n\n╔${LINE}\n${rows.map(r => '║ ' + r).join('\n')}\n╚${LINE}\n\n> ${footer}`
@@ -110,23 +150,26 @@ export async function runPlay({ sock, from, text, msg, config }) {
   }
 
   await react('🎵')
+  const spotifyTrack = await searchSportify(query)
+  const searchQuery = spotifyTrack ? `${spotifyTrack.title} ${spotifyTrack.artist}` : query
   let video
-  try { video = await findVideo(query) } catch (e) {
+  try { video = await findVideo(searchQuery) } catch (e) {
     console.error('[PLAY] search failed:', short(e))
     return sock.sendMessage(from, { text: '❌ YouTube search failed. Try again in a moment.' }, q)
   }
   if (!video) return sock.sendMessage(from, { text: '❌ No results found. Try different words.' }, q)
 
-  const title = video.title || query
+  const title = spotifyTrack?.title || video.title || query
   const rows = [
     `🎧 *ᴛɪᴛʟᴇ* ➜ ${clip(title, 60)}`,
-    `⏳ *ᴅᴜʀᴀᴛɪᴏɴ* ➜ ${video.timestamp || video.duration?.timestamp || '?'}`,
-    `👁️ *ᴠɪᴇᴡs* ➜ ${Number(video.views || 0).toLocaleString()}`,
-    `📺 *ᴄʜᴀɴɴᴇʟ* ➜ ${clip(video.author?.name || 'Unknown', 40)}`,
-    `🔗 ${video.url}`
+    `🎤 *ᴀʀᴛɪsᴛ* ➜ ${clip(spotifyTrack?.artist || video.author?.name || 'Unknown', 50)}`,
+    `⏳ *ᴅᴜʀᴀᴛɪᴏɴ* ➜ ${spotifyTrack?.duration || video.timestamp || video.duration?.timestamp || '?'}`,
+    ...(spotifyTrack?.album ? [`💿 *ᴀʟʙᴜᴍ* ➜ ${clip(spotifyTrack.album, 45)}`] : []),
+    `📺 *sᴏᴜʀᴄᴇ* ➜ YouTube audio`,
+    ...(spotifyTrack?.url ? [`🔗 *sᴘᴏᴛɪғʏ* ➜ ${spotifyTrack.url}`] : [`🔗 ${video.url}`])
   ]
   const caption = card('ɴᴏᴡ ᴘʟᴀʏɪɴɢ', rows, footer)
-  const thumb = video.thumbnail || video.image
+  const thumb = spotifyTrack?.thumbnail || video.thumbnail || video.image
   try {
     if (thumb) await sock.sendMessage(from, { image: { url: thumb }, caption }, q)
     else await sock.sendMessage(from, { text: caption }, q)
