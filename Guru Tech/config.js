@@ -71,6 +71,7 @@ const CONFIG = {
   SESSION_FORMAT: !sessionInput ? null : sessionInput.startsWith('GURU~') ? 'GURU~ gzip/base64' : 'base64 creds.json',
   TZ: process.env.TZ || process.env.TIME_ZONE || 'Africa/Nairobi',
   ANTICALL: parseBoolean(process.env.ANTICALL || 'off'),
+  AUTOBLOCK: parseBoolean(process.env.AUTOBLOCK || 'off'),
   ANTIDELETE: parseBoolean(process.env.ANTIDELETE || 'on'),
   ANTIEDIT: parseBoolean(process.env.ANTIEDIT || 'on'),
   AUTO_READ: parseBoolean(process.env.AUTO_READ || 'off'),

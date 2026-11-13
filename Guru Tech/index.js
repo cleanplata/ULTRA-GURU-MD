@@ -10,6 +10,8 @@ import { fileURLToPath } from 'url'
 import moment from 'moment-timezone'
 import { loadSudoList } from './utils/sudoStore.js'
 import CONFIG from './config.js'
+import { applyRuntimeSettings } from './runtimeSettings.js'
+import { handleGroupSecurityMessage } from './groupSecurity.js'
 import { handleMenuCategoryReply } from '../Guru/commands/Menu.js'
 import {
   seenStatusIds,
@@ -27,6 +29,7 @@ import {
 import { handleDeletedMessage, handleEditedMessage, messageStore, cleanMessageStore } from './anti.js'
 import { installViewOnceAutoSave } from './viewOnceAutoSave.js'
 
+applyRuntimeSettings(CONFIG)
 global.ALLOWED_USERS = loadSudoList()
 
 const __filename = fileURLToPath(import.meta.url)
@@ -676,24 +679,38 @@ async function start() {
         }
       }
     })
-    if (CONFIG.ANTICALL === true) {
-      sock.ev.on('call', async (callData) => {
-        try {
-          for (const call of callData) {
-            const callId = call.id
-            const callFrom = call.from
-            if (isAllowedCaller(callFrom)) {
-              console.log(`✅ Allowed caller ${callFrom} - call not rejected`)
-              continue
-            }
-            await sock.rejectCall(callId, callFrom)
-            console.log(`❌ Auto-rejected call from ${callFrom}`)
+    sock.ev.on('call', async (callData) => {
+      if (!CONFIG.ANTICALL && !CONFIG.AUTOBLOCK) return
+      try {
+        for (const call of callData) {
+          const callId = call.id
+          const callFrom = call.from
+          if (!callId || !callFrom) continue
+          if (isAllowedCaller(callFrom)) {
+            console.log(`✅ Allowed caller ${callFrom} - call not rejected or blocked`)
+            continue
           }
-        } catch (error) {
-          logError('Call Reject', null, null, error.message)
+          if (CONFIG.ANTICALL || CONFIG.AUTOBLOCK) {
+            try {
+              await sock.rejectCall(callId, callFrom)
+              console.log(`❌ Rejected call from ${callFrom}`)
+            } catch (error) {
+              logError('Call Reject', null, callFrom, error.message)
+            }
+          }
+          if (CONFIG.AUTOBLOCK) {
+            try {
+              await sock.updateBlockStatus(callFrom, 'block')
+              console.log(`⛔ Auto-blocked caller ${callFrom}`)
+            } catch (error) {
+              logError('Auto Block Caller', null, callFrom, error.message)
+            }
+          }
         }
-      })
-    }
+      } catch (error) {
+        logError('Call Protection', null, null, error.message)
+      }
+    })
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       const isEdit = type === 'edit'
       const uniqueMessages = []
@@ -798,6 +815,28 @@ async function start() {
           msg.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
           msg.message.templateButtonReplyMessage?.selectedId ||
           ''
+
+        if (!isEdit && isGroup && !isFromMe) {
+          const isOwnCommandText = (candidate) => {
+            const trimmed = String(candidate || '').trimStart()
+            const prefix = (CONFIG.PREFIXES || []).find(value => value && trimmed.startsWith(value))
+            if (!prefix) return false
+            const candidateName = trimmed.slice(prefix.length).trim().split(/\s+/)[0]?.toLowerCase()
+            if (!candidateName) return false
+            const canonicalName = commandAliases.get(candidateName) || candidateName
+            return commands.has(canonicalName)
+          }
+          try {
+            const handled = await handleGroupSecurityMessage({
+              sock, msg, groupJid: from, senderJid, body,
+              prefixes: CONFIG.PREFIXES || [],
+              isOwnCommandText
+            })
+            if (handled) continue
+          } catch (error) {
+            logError('Group Security', null, from, error.message)
+          }
+        }
 
         if (!isEdit) {
           messageStore.set(msg.key.id, {

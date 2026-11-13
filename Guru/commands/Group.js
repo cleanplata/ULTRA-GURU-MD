@@ -102,33 +102,6 @@ export const commands = [
     }
   },
   {
-    name: 'antilink',
-    description: 'Enable/disable antilink and set action (warn/kick/delete)',
-    category: 'Group',
-    adminOnly: true,
-    botAdminOnly: true,
-    ownerOnly: true,
-    groupOnly: true,
-    execute: async ({ sock, from, text, msg }) => {
-      if (!from.endsWith('@g.us')) {
-        const groupOnlyMsg = await t(from, 'group', 'groupOnly');
-        return sock.sendMessage(from, { text: groupOnlyMsg }, { quoted: msg });
-      }
-      const args = text.trim().split(/\s+/);
-      const [option, action = 'warn'] = args;
-      if (!['on', 'off'].includes(option) || !['warn', 'kick', 'delete'].includes(action)) {
-        const usageMsg = await t(from, 'antilink', 'usage');
-        return sock.sendMessage(from, {
-          text: usageMsg
-        }, { quoted: msg });
-      }
-      const successMsg = await t(from, 'antilink', 'success');
-      return sock.sendMessage(from, {
-        text: successMsg.replace('{option}', option.toUpperCase()).replace('{action}', action.toUpperCase())
-      }, { quoted: msg });
-    }
-  },
-  {
     name: 'hidetag',
     aliases: ['tag'],
     description: 'Mentions all members in the group using a message or media.',

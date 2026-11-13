@@ -1,4 +1,5 @@
 import CONFIG from '../../Guru Tech/config.js'
+import { updateRuntimeSettings } from '../../Guru Tech/runtimeSettings.js'
 
 const FEATURE_FLAGS = {
   antidelete: { label: 'Anti-delete', key: 'ANTIDELETE' },
@@ -130,11 +131,13 @@ export const commands = [
       if (ownerOnlyReply(sock, from, msg, isOwner)) return
       const rows = [
         `• Mode: *${String(CONFIG.MODE || 'private').toUpperCase()}*`,
+        `• Anti-call: *${CONFIG.ANTICALL ? 'ON' : 'OFF'}*`,
+        `• Auto-block callers: *${CONFIG.AUTOBLOCK ? 'ON' : 'OFF'}*`,
         ...Object.values(FEATURE_FLAGS).map(({ label, key }) => `• ${label}: *${CONFIG[key] ? 'ON' : 'OFF'}*`),
         `• Auto-read chats: *${CONFIG.AUTO_READ ? 'ON' : 'OFF'}*`
       ]
       return sock.sendMessage(from, {
-        text: `*🛡️ ULTRA GURU SECURITY STATUS*\n\n${rows.join('\n')}\n\nUse .antidelete on|off, .antiedit on|off, .autoview on|off, or .autolike on|off to change features for this running process. These toggles reset on restart; set the matching host Config Var to keep a setting across restarts.`
+        text: `*🛡️ ULTRA GURU SECURITY STATUS*\n\n${rows.join('\n')}\n\nUse .antidelete, .antiedit, .autoview, .autolike, .anticall, or .autoblock with on|off to change settings. Anti-call settings are saved under Guru Tech/data; on hosts with ephemeral storage, use the matching Config Var to keep a setting across redeploys.`
       }, { quoted: msg })
     }
   },
@@ -160,5 +163,43 @@ export const commands = [
         text: `✅ ${label} is now *${requested.toUpperCase()}* for this running process.\nFor persistence after restart, set the matching host Config Var: ${key}=${requested}.`
       }, { quoted: msg })
     }
-  }))
+  })),
+  {
+    name: 'anticall',
+    aliases: ['rejectcalls', 'callguard'],
+    description: 'Owner-only: reject calls from non-owner numbers.',
+    category: 'Settings', ownerOnly: true,
+    execute: async ({ sock, from, msg, text, isOwner }) => {
+      if (ownerOnlyReply(sock, from, msg, isOwner)) return
+      const requested = String(text || '').trim().toLowerCase()
+      if (!requested || requested === 'status') {
+        return sock.sendMessage(from, { text: `Anti-call: *${CONFIG.ANTICALL ? 'ON' : 'OFF'}*\nAuto-block: *${CONFIG.AUTOBLOCK ? 'ON' : 'OFF'}*\nUsage: .anticall on | off\nOwner numbers are allowlisted. Turning anti-call off also turns auto-block off.` }, { quoted: msg })
+      }
+      if (!['on', 'off'].includes(requested)) return sock.sendMessage(from, { text: 'Use .anticall on or .anticall off.' }, { quoted: msg })
+      const patch = requested === 'off' ? { ANTICALL: false, AUTOBLOCK: false } : { ANTICALL: true }
+      updateRuntimeSettings(CONFIG, patch)
+      return sock.sendMessage(from, { text: `✅ Anti-call is *${requested.toUpperCase()}*. Calls from non-owner numbers will ${requested === 'on' ? 'be rejected' : 'ring normally'}${requested === 'off' ? ' and auto-block has also been disabled' : ''}. Runtime setting saved to the bot data directory.` }, { quoted: msg })
+    }
+  },
+  {
+    name: 'autoblock',
+    aliases: ['blockcallers', 'autoblockcall'],
+    description: 'Owner-only: automatically block non-owner numbers after they call the bot.',
+    category: 'Settings', ownerOnly: true,
+    execute: async ({ sock, from, msg, text, isOwner }) => {
+      if (ownerOnlyReply(sock, from, msg, isOwner)) return
+      const requested = String(text || '').trim().toLowerCase()
+      if (!requested || requested === 'status') {
+        return sock.sendMessage(from, { text: `Auto-block callers: *${CONFIG.AUTOBLOCK ? 'ON' : 'OFF'}*\nAnti-call: *${CONFIG.ANTICALL ? 'ON' : 'OFF'}*\nUsage: .autoblock on | off\nWhen on, non-owner callers are rejected and their number is blocked. Owner numbers are allowlisted. This may block legitimate contacts; use .autoblock off to disable.` }, { quoted: msg })
+      }
+      if (!['on', 'off'].includes(requested)) return sock.sendMessage(from, { text: 'Use .autoblock on or .autoblock off.' }, { quoted: msg })
+      const patch = requested === 'on'
+        ? { ANTICALL: true, AUTOBLOCK: true }
+        : { AUTOBLOCK: false }
+      updateRuntimeSettings(CONFIG, patch)
+      return sock.sendMessage(from, { text: requested === 'on'
+        ? '⚠️ Auto-block is ON. Non-owner callers will be rejected and blocked automatically. Owner numbers are allowlisted. Use .autoblock off to stop blocking callers.'
+        : `✅ Auto-block is OFF. Anti-call remains ${CONFIG.ANTICALL ? 'ON (calls are rejected but not blocked)' : 'OFF'}.`, quoted: msg })
+    }
+  }
 ]

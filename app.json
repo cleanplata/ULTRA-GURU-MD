@@ -76,6 +76,11 @@
       "value": "off",
       "required": false
     },
+    "AUTOBLOCK": {
+      "description": "Auto-block non-owner numbers after they call the bot (on/off); leave off unless desired",
+      "value": "off",
+      "required": false
+    },
     "ANTIDELETE": {
       "description": "Detect deleted messages (on/off)",
       "value": "on",
