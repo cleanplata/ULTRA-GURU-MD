@@ -147,6 +147,25 @@ function renderCategoryCommands({ category, index, prefix, botName, ownerName })
     ].join('\n');
 }
 
+function renderAllCategoryCommands({ categories, prefix, botName, ownerName }) {
+    const lines = [
+        `> ╭─⌈ 🔥 *${botName}* · _ALL COMMANDS_ ⌋`,
+        `> │ 📋 *${categories.reduce((total, category) => total + category.commands.length, 0)} commands* · *${categories.length} categories*`,
+        '> │'
+    ];
+
+    for (const category of categories) {
+        lines.push(`> │ ── *${category.name.toUpperCase()}* · ${category.commands.length} commands ──`);
+        for (const command of category.commands) {
+            lines.push(`> │ ▫️ ${prefix}${command.name}`);
+        }
+        lines.push('> │');
+    }
+
+    lines.push(`> ╰⊷ ✨ _Powered by ${ownerName}_`);
+    return lines.join('\n');
+}
+
 function categoryMenuKey(chat) {
     return String(chat || '');
 }
@@ -222,6 +241,11 @@ export const commands = [
 
                 const selector = String(text || '').trim();
                 if (selector) {
+                    if (['all', 'full', '*', 'everything'].includes(selector.toLowerCase())) {
+                        return sock.sendMessage(from, {
+                            text: renderAllCategoryCommands({ categories, prefix, botName, ownerName })
+                        }, { quoted: msg });
+                    }
                     const selected = resolveCategorySelection(selector, categories);
                     if (selected) {
                         return sock.sendMessage(from, {
@@ -229,7 +253,7 @@ export const commands = [
                         }, { quoted: msg });
                     }
                     return sock.sendMessage(from, {
-                        text: `Choose a category with \`${prefix || '.'}menu 1\`–\`${prefix || '.'}menu ${categories.length}\`, or run \`${prefix || '.'}menu\` to see the index.`
+                        text: `Choose a category with \`${prefix || '.'}menu 1\`–\`${prefix || '.'}menu ${categories.length}\`, run \`${prefix || '.'}menu all\` for every command, or run \`${prefix || '.'}menu\` to see the index.`
                     }, { quoted: msg });
                 }
 
@@ -261,6 +285,7 @@ export const commands = [
                     `> │ 📋 *CATEGORIES*  ·  _reply 1–${categories.length}_`,
                     '> │',
                     categoryLines,
+                    `> │ Type ${prefix || '.'}menu all for every command by category`,
                     `> ╰⊷ ✨ _Powered by ${ownerName}_`
                 ].join('\n');
 
