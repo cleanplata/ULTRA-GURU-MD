@@ -142,15 +142,23 @@ async function downloadWithYtDlp(videoUrl, tempDir, dependencies = {}) {
   if (typeof run !== 'function') throw new Error('Local audio downloader is unavailable.')
 
   const outputTemplate = path.join(tempDir, 'yt-dlp-source.%(ext)s')
-  await run(videoUrl, {
-    format: 'bestaudio/best',
+  const baseFlags = {
+    format: 'bestaudio[ext=m4a]/bestaudio/best',
     output: outputTemplate,
     noPlaylist: true,
     noWarnings: true,
     noProgress: true,
-    jsRuntimes: 'node',
     restrictFilenames: true
-  }, { timeout: 45000, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024 })
+  }
+  const execOptions = { timeout: 60000, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024 }
+  try {
+    await run(videoUrl, { ...baseFlags, jsRuntimes: 'node' }, execOptions)
+  } catch (firstError) {
+    // Older yt-dlp builds don't know --js-runtimes and fail instantly; retry plain.
+    console.warn('[PLAY] yt-dlp first attempt failed:', safeErrorSummary(firstError))
+    for (const name of fs.readdirSync(tempDir)) fs.rmSync(path.join(tempDir, name), { force: true })
+    await run(videoUrl, baseFlags, execOptions)
+  }
 
   const downloaded = fs.readdirSync(tempDir).find(name =>
     name.startsWith('yt-dlp-source.') && !name.endsWith('.part')
@@ -209,15 +217,23 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
     const thumbnail = video.thumbnail ||
       (video.videoId ? `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg` : '') ||
       config?.BOT_PIC || ''
+    // Every line starts with "> " so WhatsApp keeps rendering it as the grey quote block.
     const previewCaption = [
-      `> ╭─⌈ 🔥 *${botName}* · _MUSIC PLAYER_ ⌋`,
-      `> │ 🎵 *Title* › ${displayTitle}`,
-      `> │ 👤 *Channel* › ${channel}`,
-      `> │ ⏱️ *Duration* › ${duration}`,
-      '> │ 🔊 *Audio* › *MP3 · 128 kbps*',
-      `> ╰⊷ ✨ _Powered by ${ownerName}_`
+      `> 🔥 *${botName}* · _MUSIC PLAYER_`,
+      '> ┌──────────┬──────────────',
+      '> │ *Field* │ *Details*',
+      '> ├──────────┼──────────────',
+      `> │ 🎵 Title │ ${displayTitle}`,
+      '> ├──────────┼──────────────',
+      `> │ 👤 Channel │ ${channel}`,
+      '> ├──────────┼──────────────',
+      `> │ ⏱️ Duration │ ${duration}`,
+      '> ├──────────┼──────────────',
+      '> │ 🔊 Audio │ MP3 · 128 kbps',
+      '> └──────────┴──────────────',
+      `> ✨ _Powered by ${ownerName}_`
     ].join('\n')
-    const previewWithStatus = `${previewCaption}\n> │ ⏳ _Preparing the audio…_`
+    const previewWithStatus = `${previewCaption}\n> ⏳ _Preparing the audio…_`
     try {
       if (thumbnail) {
         await sock.sendMessage(from, { image: { url: thumbnail }, caption: previewWithStatus }, { quoted: msg })
@@ -296,7 +312,6 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
       sourceReference = audioResult.source
       sourceContentType = audioResult.contentType
     } else {
-      if (!ffmpegPath) throw raceError || new Error('MP3 conversion is unavailable.')
       console.warn('[PLAY] Both hosted audio sources unavailable; trying local fallback.')
       await sock.sendMessage(from, { text: '⏳ Trying the local audio fallback…' }, { quoted: msg })
       tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ultra-guru-play-'))
@@ -311,6 +326,7 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
 
     const title = safeFileName(payload?.title || video.title || query)
     let audioFileName = `${title}.mp3`
+    let audioMime = 'audio/mpeg'
     if (ffmpegPath) {
       tempDir ||= fs.mkdtempSync(path.join(os.tmpdir(), 'ultra-guru-play-'))
       const inputPath = localSourcePath || path.join(tempDir, `source.${extensionFrom(sourceReference, sourceContentType)}`)
@@ -318,8 +334,13 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
       if (!localSourcePath) fs.writeFileSync(inputPath, audioBuffer)
       await transcodeToMp3(inputPath, outputPath, ffmpegPath, runFile)
       audioBuffer = fs.readFileSync(outputPath)
-    } else if (extensionFrom(sourceReference, sourceContentType) !== 'mp3') {
-      throw new Error('MP3 conversion is unavailable on this deployment.')
+    } else {
+      // No ffmpeg on this host: send the audio as-is if WhatsApp can play it.
+      const rawExt = extensionFrom(sourceReference, sourceContentType)
+      const mimeByExt = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', opus: 'audio/ogg' }
+      if (!mimeByExt[rawExt]) throw new Error('MP3 conversion is unavailable on this deployment.')
+      audioMime = mimeByExt[rawExt]
+      audioFileName = `${title}.${rawExt}`
     }
 
     if (!audioBuffer.length || audioBuffer.length > MAX_WHATSAPP_AUDIO_BYTES) {
@@ -328,7 +349,7 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
 
     await sock.sendMessage(from, {
       audio: audioBuffer,
-      mimetype: 'audio/mpeg',
+      mimetype: audioMime,
       fileName: audioFileName,
       ptt: false
     }, { quoted: msg })
@@ -338,6 +359,7 @@ export async function runPlay({ sock, from, text, msg, config }, dependencies = 
     const errorText = /timeout|timed out|ETIMEDOUT|ECONNABORTED/i.test(error.message)
       ? (messages.timeout || '⏱️ The song service timed out. Please try again.')
       : (messages.error || '❌ Could not prepare that song right now. Please try again later.')
+    console.error('[PLAY] FULL ERROR:', error?.stack || error)
     await sock.sendMessage(from, { text: errorText }, { quoted: msg })
   } finally {
     if (tempDir && fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
