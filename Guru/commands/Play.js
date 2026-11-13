@@ -82,54 +82,57 @@ async function viaProviders(vars) {
   throw err
 }
 
-async function findVideo(query) {
+
+// ---------------------------------------------------------------- Sportify (Spotify search) API
+const SPORTIFY_BASE = (process.env.SPORTIFY_API || 'https://sportify.xcasper.space').replace(/\/+$/, '')
+
+function findTrackNode(node, depth = 0) {
+  if (!node || depth > 6) return null
+  if (Array.isArray(node)) {
+    for (const item of node) { const f = findTrackNode(item, depth + 1); if (f) return f }
+    return null
+  }
+  if (typeof node === 'object') {
+    if (typeof node.name === 'string' && (Array.isArray(node.artists) || node.artists?.items)) return node
+    for (const k of Object.keys(node)) { const f = findTrackNode(node[k], depth + 1); if (f) return f }
+  }
+  return null
+}
+
+async function sportifySearch(query) {
+  const res = await axios.get(`${SPORTIFY_BASE}/api/search`, {
+    params: { q: query, type: 'track', limit: 1 },
+    timeout: 12000,
+    headers: { 'User-Agent': UA, Accept: 'application/json' }
+  })
+  const t = findTrackNode(res.data)
+  if (!t) throw new Error('no track in reply')
+  const artistList = Array.isArray(t.artists) ? t.artists : (t.artists?.items || [])
+  const images = t.album?.images || t.images || []
+  return {
+    title: t.name,
+    artist: artistList.map(a => a.name || a).filter(Boolean).join(', ') || 'Unknown',
+    album: t.album?.name || '',
+    seconds: t.duration_ms ? Math.round(t.duration_ms / 1000) : 0,
+    cover: images[0]?.url || '',
+    spotifyUrl: t.external_urls?.spotify || (t.id ? `https://open.spotify.com/track/${t.id}` : '')
+  }
+}
+
+const fmtTime = sec => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
+
+async function findVideo(query, targetSeconds = 0) {
   const m = query.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/)
   if (m) {
     try { const v = await yts({ videoId: m[1] }); if (v) return v } catch { /* fall through to search */ }
   }
   const r = await yts(query)
   const vids = r.videos || []
+  if (targetSeconds) {
+    const close = vids.filter(x => x.seconds && Math.abs(x.seconds - targetSeconds) <= 12)
+    if (close.length) return close[0]
+  }
   return vids.find(x => x.seconds && x.seconds <= 1800) || vids[0] || null
-}
-
-const SPORTIFY_API = (process.env.SPORTIFY_API_URL || 'https://sportify.xcasper.space/api').replace(/\/$/, '')
-
-function spotifyTrackFrom(data) {
-  const raw = data?.track || data?.result || data?.data?.track || data?.data || data
-  if (!raw || typeof raw !== 'object') return null
-  const track = {
-    id: raw.id,
-    title: raw.title || raw.name,
-    artist: raw.artist || raw.artists?.map?.(item => typeof item === 'string' ? item : item.name).filter(Boolean).join(', '),
-    album: raw.album?.name || raw.album,
-    url: raw.url || raw.external_urls?.spotify,
-    thumbnail: raw.thumbnail || raw.album?.images?.[0]?.url || raw.images?.[0]?.url,
-    duration: raw.duration || raw.duration_ms && `${Math.floor(raw.duration_ms / 60000)}:${String(Math.floor(raw.duration_ms / 1000) % 60).padStart(2, '0')}`
-  }
-  return track.title && track.artist ? track : null
-}
-
-export async function searchSportify(query) {
-  const spotifyUrl = String(query).match(/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\/([\w]+)/i)
-  try {
-    if (spotifyUrl) {
-      const response = await axios.get(`${SPORTIFY_API}/track/${encodeURIComponent(spotifyUrl[1])}`, {
-        timeout: 12000, headers: { 'User-Agent': UA, Accept: 'application/json' }
-      })
-      const track = spotifyTrackFrom(response.data)
-      if (track) return track
-    }
-    const response = await axios.get(`${SPORTIFY_API}/search`, {
-      params: { q: query, type: 'track', limit: 1, offset: 0 },
-      timeout: 12000, headers: { 'User-Agent': UA, Accept: 'application/json' }
-    })
-    const data = response.data
-    if (data?.success === false) return null
-    return spotifyTrackFrom(data?.results?.[0] || data?.tracks?.items?.[0] || data?.results?.tracks?.items?.[0])
-  } catch (error) {
-    console.warn('[PLAY] Sportify metadata unavailable; using YouTube search:', short(error))
-    return null
-  }
 }
 
 // Mini-bot card layout. The footer line starts with "> " so WhatsApp shows it in the grey quote style.
@@ -150,26 +153,39 @@ export async function runPlay({ sock, from, text, msg, config }) {
   }
 
   await react('🎵')
-  const spotifyTrack = await searchSportify(query)
-  const searchQuery = spotifyTrack ? `${spotifyTrack.title} ${spotifyTrack.artist}` : query
+  const isLink = /(?:youtu\.be\/|youtube\.com\/)/i.test(query)
+  let meta = null
+  if (!isLink) {
+    try { meta = await sportifySearch(query) } catch (e) { console.warn('[PLAY] Sportify search failed:', short(e)) }
+  }
+
   let video
-  try { video = await findVideo(searchQuery) } catch (e) {
+  try {
+    video = meta ? await findVideo(`${meta.artist} ${meta.title}`, meta.seconds) : await findVideo(query)
+    if (!video && meta) video = await findVideo(query)
+  } catch (e) {
     console.error('[PLAY] search failed:', short(e))
     return sock.sendMessage(from, { text: '❌ YouTube search failed. Try again in a moment.' }, q)
   }
   if (!video) return sock.sendMessage(from, { text: '❌ No results found. Try different words.' }, q)
 
-  const title = spotifyTrack?.title || video.title || query
-  const rows = [
+  const title = meta?.title || video.title || query
+  const rows = meta ? [
+    `🎧 *ᴛɪᴛʟᴇ* ➜ ${clip(meta.title, 60)}`,
+    `🎤 *ᴀʀᴛɪsᴛ* ➜ ${clip(meta.artist, 50)}`,
+    ...(meta.album ? [`💿 *ᴀʟʙᴜᴍ* ➜ ${clip(meta.album, 50)}`] : []),
+    `⏳ *ᴅᴜʀᴀᴛɪᴏɴ* ➜ ${meta.seconds ? fmtTime(meta.seconds) : (video.timestamp || '?')}`,
+    ...(meta.spotifyUrl ? [`🟢 ${meta.spotifyUrl}`] : []),
+    `🔗 ${video.url}`
+  ] : [
     `🎧 *ᴛɪᴛʟᴇ* ➜ ${clip(title, 60)}`,
-    `🎤 *ᴀʀᴛɪsᴛ* ➜ ${clip(spotifyTrack?.artist || video.author?.name || 'Unknown', 50)}`,
-    `⏳ *ᴅᴜʀᴀᴛɪᴏɴ* ➜ ${spotifyTrack?.duration || video.timestamp || video.duration?.timestamp || '?'}`,
-    ...(spotifyTrack?.album ? [`💿 *ᴀʟʙᴜᴍ* ➜ ${clip(spotifyTrack.album, 45)}`] : []),
-    `📺 *sᴏᴜʀᴄᴇ* ➜ YouTube audio`,
-    ...(spotifyTrack?.url ? [`🔗 *sᴘᴏᴛɪғʏ* ➜ ${spotifyTrack.url}`] : [`🔗 ${video.url}`])
+    `⏳ *ᴅᴜʀᴀᴛɪᴏɴ* ➜ ${video.timestamp || video.duration?.timestamp || '?'}`,
+    `👁️ *ᴠɪᴇᴡs* ➜ ${Number(video.views || 0).toLocaleString()}`,
+    `📺 *ᴄʜᴀɴɴᴇʟ* ➜ ${clip(video.author?.name || 'Unknown', 40)}`,
+    `🔗 ${video.url}`
   ]
   const caption = card('ɴᴏᴡ ᴘʟᴀʏɪɴɢ', rows, footer)
-  const thumb = spotifyTrack?.thumbnail || video.thumbnail || video.image
+  const thumb = meta?.cover || video.thumbnail || video.image
   try {
     if (thumb) await sock.sendMessage(from, { image: { url: thumb }, caption }, q)
     else await sock.sendMessage(from, { text: caption }, q)
@@ -181,7 +197,7 @@ export async function runPlay({ sock, from, text, msg, config }) {
     const { buffer, source } = await viaProviders({ url: video.url, id: video.videoId })
     console.log(`[PLAY] audio via ${source} (${(buffer.length / 1048576).toFixed(1)} MB)`)
     const mb = buffer.length / 1048576
-    const fileName = `${title.replace(/[\\/:*?"<>|]/g, '')}.mp3`
+    const fileName = `${(meta ? `${meta.artist} - ${meta.title}` : title).replace(/[\\/:*?"<>|]/g, '')}.mp3`
     if (mb <= 16) {
       await sock.sendMessage(from, { audio: buffer, mimetype: 'audio/mpeg', fileName }, q)
     } else if (mb <= 90) {
