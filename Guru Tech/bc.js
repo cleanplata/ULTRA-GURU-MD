@@ -13,7 +13,11 @@ const STATUS_VIEW_MAX_RETRIES = 3
 const STATUS_VIEW_RETRY_BASE_MS = 1000
 const STATUS_LIKE_TIMEOUT_MS = 25000
 const STATUS_LIKE_QUEUE_LIMIT = 10
-const STATUS_LIKE_EMOJIS = ['❤️', '🤍', '👍', '🔥', '👏', '🥰', '😂', '😮']
+// Optional: set STATUS_LIKE_EMOJIS="❤️,🔥,😍" in your env to choose your own emojis.
+const STATUS_LIKE_EMOJIS = (process.env.STATUS_LIKE_EMOJIS || '')
+  .split(',').map(e => e.trim()).filter(Boolean)
+const DEFAULT_LIKE_EMOJIS = ['❤️', '🤍', '👍', '🔥', '👏', '🥰', '😂', '😮']
+const likeEmojiPool = () => STATUS_LIKE_EMOJIS.length ? STATUS_LIKE_EMOJIS : DEFAULT_LIKE_EMOJIS
 const statusLikeQueue = []
 let statusLikeBusy = false
 
@@ -39,17 +43,35 @@ async function pumpStatusLikeQueue() {
   try {
     while (statusLikeQueue.length) {
       const job = statusLikeQueue.shift()
-      try {
-        await withTimeout(
-          () => job.sock.sendMessage('status@broadcast', {
-            react: { text: job.emoji, key: job.key }
-          }, { statusJidList: [job.participant] }),
-          STATUS_LIKE_TIMEOUT_MS,
-          'status like timed out'
-        )
-        console.log(`❤️ Liked status from: ${job.participant}`)
-      } catch (error) {
-        console.warn(`⚠️ Status like skipped: ${error.message}`)
+      // WhatsApp only delivers a status reaction when the recipient list contains
+      // the poster AND the bot's own account (phone JID and LID forms).
+      const recipients = new Set()
+      const addJid = jid => {
+        if (typeof jid === 'string' && jid && jid !== 'status@broadcast') {
+          recipients.add(jid.replace(/:\d+@/, '@'))
+        }
+      }
+      addJid(job.participant)
+      addJid(job.key?.participant)
+      addJid(job.sock.user?.id)
+      addJid(job.sock.user?.lid)
+
+      let liked = false
+      for (let attempt = 1; attempt <= 2 && !liked; attempt++) {
+        try {
+          await withTimeout(
+            () => job.sock.sendMessage('status@broadcast', {
+              react: { text: job.emoji, key: job.key }
+            }, { statusJidList: [...recipients] }),
+            STATUS_LIKE_TIMEOUT_MS,
+            'status like timed out'
+          )
+          liked = true
+          console.log(`${job.emoji} Reacted to status from: ${job.participant}`)
+        } catch (error) {
+          console.warn(`⚠️ Status reaction attempt ${attempt} failed: ${error.message}`)
+          if (attempt < 2) await wait(1500)
+        }
       }
     }
   } finally {
@@ -63,7 +85,8 @@ function enqueueStatusLike(sock, key, participant) {
     console.warn('⚠️ Status like queue full; skipping reaction')
     return
   }
-  const emoji = STATUS_LIKE_EMOJIS[Math.floor(Math.random() * STATUS_LIKE_EMOJIS.length)]
+  const pool = likeEmojiPool()
+  const emoji = pool[Math.floor(Math.random() * pool.length)]
   statusLikeQueue.push({ sock, key, participant, emoji })
   void pumpStatusLikeQueue()
 }
@@ -162,7 +185,8 @@ export async function processStatusMessage(msg, sock) {
     }
 
     if (CONFIG.AUTO_LIKE === true && statusPosterJid !== 'Unknown') {
-      setTimeout(() => enqueueStatusLike(sock, resolvedKey, statusPosterJid), 2000)
+      const reactKey = { ...msg.key, remoteJid: 'status@broadcast', participant: msg.key.participant || resolvedParticipant }
+      setTimeout(() => enqueueStatusLike(sock, reactKey, statusPosterJid), 2000)
     }
 
     seenStatusIds.add(id)
