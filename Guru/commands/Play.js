@@ -201,21 +201,19 @@ export async function runPlay({ sock, from, text, msg, config }) {
     const duration = media.duration ? String(media.duration) : '—'
     const sizeMb = (buffer.length / 1048576).toFixed(1)
 
-    // Table-style card. Every line starts with "> " so WhatsApp shows the grey quote block.
+    // Same look as the bot menu (╭─⌈ ⌋ header, │ rows with ›, ╰⊷ footer), with ├ dividers so the
+    // rows read as a connected table. Every line starts with "> " to keep WhatsApp's grey quote block.
+    const divider = '> ├──────────────'
     const caption = [
-      `> 🔥 *${botName}* · _MUSIC PLAYER_`,
-      '> ┌──────────┬──────────────',
-      '> │ *Field* │ *Details*',
-      '> ├──────────┼──────────────',
-      `> │ 🎵 Title │ ${title}`,
-      '> ├──────────┼──────────────',
-      `> │ 👤 Channel │ ${channel}`,
-      '> ├──────────┼──────────────',
-      `> │ ⏱️ Duration │ ${duration}`,
-      '> ├──────────┼──────────────',
-      `> │ 🔊 Audio │ MP3 · ${sizeMb} MB`,
-      '> └──────────┴──────────────',
-      `> ✨ _Powered by ${ownerName}_`
+      `> ╭─⌈ 🔥 *${botName}*  ·  _MUSIC PLAYER_ ⌋`,
+      `> │ 🎵 *Title*  ›  ${title}`,
+      divider,
+      `> │ 👤 *Channel*  ›  ${channel}`,
+      divider,
+      `> │ ⏱️ *Duration*  ›  ${duration}`,
+      divider,
+      `> │ 🔊 *Audio*  ›  MP3 · ${sizeMb} MB`,
+      `> ╰⊷ ✨ _Powered by ${ownerName}_`
     ].join('\n')
 
     try {
@@ -232,7 +230,12 @@ export async function runPlay({ sock, from, text, msg, config }) {
     await react('❌')
     const detail = (error.attempts || []).slice(0, 6).map(a => `• ${a}`).join('\n')
     await sock.sendMessage(from, {
-      text: `> ❌ *Play failed:* ${error.message || error}${detail ? `\n\n_Details:_\n${detail}` : ''}`
+      text: [
+        `> ╭─⌈ 🔥 *${botName}*  ·  _MUSIC PLAYER_ ⌋`,
+        `> │ ❌ *Play failed*  ›  ${error.message || error}`,
+        ...(detail ? ['> ├──────────────', ...(error.attempts || []).slice(0, 6).map(a => `> │ ▫️ ${a}`)] : []),
+        `> ╰⊷ ✨ _Powered by ${ownerName}_`
+      ].join('\n')
     }, q)
   }
 }
