@@ -65,7 +65,7 @@ const audioApis = () => process.env.YT_AUDIO_APIS
   ? process.env.YT_AUDIO_APIS.split(',').map(x => x.trim()).filter(Boolean)
   : DEFAULT_APIS
 
-const short = e => String((e && e.message) || e || 'error').replace(/\s+/g, ' ').slice(0, 90)
+const short = e => String((e && e.message) || e || 'error').replace(/\s+/g, ' ').slice(0, 120)
 const hostOf = u => { try { return new URL(u.replace('{url}', 'x').replace('{id}', 'x')).hostname } catch { return 'source' } }
 
 function collectUrls(o, out = [], key = '') {
@@ -111,7 +111,9 @@ async function fetchAudio(link, seconds) {
   if (!looksLikeAudio(buffer) || buffer.length < minBytes) {
     const head = buffer.slice(0, 80).toString('utf8').replace(/[^\x20-\x7e]/g, '.')
     console.warn(`[PLAY] rejected file: ${buffer.length} bytes, type=${type || '?'}, need>=${minBytes}, head="${head}"`)
-    throw new Error(`bad audio file (${Math.round(buffer.length / 1024)} KB)`)
+    const e = new Error(`bad audio file (${Math.round(buffer.length / 1024)} KB, ${type || 'no type'}): ${head.slice(0, 45)}`)
+    e.badFile = true
+    throw e
   }
   return buffer
 }
@@ -124,10 +126,20 @@ async function downloadMp3(track) {
       const api = tpl
         .replace(/\{url\}/g, encodeURIComponent(track.url))
         .replace(/\{id\}/g, encodeURIComponent(track.videoId || track.url.match(/(?:v=|youtu\.be\/)([\w-]{11})/)?.[1] || ''))
-      const res = await axios.get(api, { timeout: 30000, headers: { 'User-Agent': UA, Accept: 'application/json,*/*' } })
-      const link = res.data?.result?.download_url || res.data?.result?.downloadUrl || pickAudio(res.data)
-      if (!link) throw new Error('no download link in reply')
-      const buffer = await fetchAudio(link, track.seconds)
+      let buffer
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const res = await axios.get(api, { timeout: 30000, headers: { 'User-Agent': UA, Accept: 'application/json,*/*' } })
+        const link = res.data?.result?.download_url || res.data?.result?.downloadUrl || pickAudio(res.data)
+        if (!link) throw new Error('no download link in reply')
+        try {
+          buffer = await fetchAudio(link, track.seconds)
+          break
+        } catch (e) {
+          if (!e.badFile || attempt === 3) throw e
+          console.warn(`[PLAY] ${host} gave a stub file, retrying in 6s (attempt ${attempt}/3)`)
+          await new Promise(r => setTimeout(r, 6000))
+        }
+      }
       console.log(`[PLAY] audio via ${host} (${(buffer.length / 1048576).toFixed(1)} MB)`)
       return buffer
     } catch (e) { attempts.push(`${host}: ${short(e)}`) }
