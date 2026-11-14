@@ -132,8 +132,22 @@ async function downloadMp3(track) {
       return buffer
     } catch (e) { attempts.push(`${host}: ${short(e)}`) }
   }
+  try {
+    const res = await axios.post('https://api.cobalt.tools/', { url: track.url, downloadMode: 'audio', audioFormat: 'mp3' }, {
+      timeout: 30000,
+      headers: { 'User-Agent': UA, Accept: 'application/json', 'Content-Type': 'application/json' }
+    })
+    const link = res.data?.url
+    if (!link) throw new Error(res.data?.error?.code || res.data?.status || 'no url in reply')
+    const buffer = await fetchAudio(link, track.seconds)
+    console.log(`[PLAY] audio via cobalt (${(buffer.length / 1048576).toFixed(1)} MB)`)
+    return buffer
+  } catch (e) { attempts.push(`cobalt: ${short(e?.response?.data?.error?.code || e)}`) }
+
   console.error('[PLAY] all sources failed:', attempts.join(' | '))
-  throw new Error('every download source gave a broken or empty file. Try again in a minute.')
+  const err = new Error('every download source gave a broken or empty file.')
+  err.attempts = attempts
+  throw err
 }
 
 export async function runPlay({ sock, from, text, msg }) {
@@ -164,7 +178,10 @@ export async function runPlay({ sock, from, text, msg }) {
     await sock.sendMessage(from, { document: audioBuffer, mimetype: 'audio/mpeg', fileName: `${safeName}.mp3` }, q)
   } catch (err) {
     console.error('[PLAY] failed:', err?.response?.status ? `HTTP ${err.response.status}` : '', err?.message)
-    await sock.sendMessage(from, { text: `❌ *Download failed:* ${err.message}` }, q)
+    const detail = (err.attempts || []).slice(0, 6).map(a => `• ${a}`).join('\n')
+    await sock.sendMessage(from, {
+      text: `❌ *Download failed:* ${err.message}${detail ? `\n\n_Details:_\n${detail}` : ''}`
+    }, q)
   }
 }
 
