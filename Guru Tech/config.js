@@ -77,6 +77,7 @@ const CONFIG = {
   AUTO_READ: parseBoolean(process.env.AUTO_READ || 'off'),
   AUTO_VIEW: parseBoolean(process.env.AUTO_VIEW ?? process.env.AUTO_READ_STATUS ?? 'on'),
   AUTO_LIKE: parseBoolean(process.env.AUTO_LIKE ?? process.env.AUTO_LIKE_STATUS ?? 'on'),
+  STATUS_LIKE_EMOJI: process.env.STATUS_LIKE_EMOJI || 'random',
   DM_PRESENCE: process.env.DM_PRESENCE || '',
   GRP_PRESENCE: process.env.GRP_PRESENCE || '',
   USER_LID: parseLids(process.env.USER_LID || ''),

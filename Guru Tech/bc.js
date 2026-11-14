@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import CONFIG from './config.js'
+import { chooseStatusReactionEmoji } from './statusReactions.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -13,11 +14,9 @@ const STATUS_VIEW_MAX_RETRIES = 3
 const STATUS_VIEW_RETRY_BASE_MS = 1000
 const STATUS_LIKE_TIMEOUT_MS = 25000
 const STATUS_LIKE_QUEUE_LIMIT = 10
-// Optional: set STATUS_LIKE_EMOJIS="❤️,🔥,😍" in your env to choose your own emojis.
+// Optional legacy custom pool; otherwise the Toxic-MD 25-emoji pool is used.
 const STATUS_LIKE_EMOJIS = (process.env.STATUS_LIKE_EMOJIS || '')
   .split(',').map(e => e.trim()).filter(Boolean)
-const DEFAULT_LIKE_EMOJIS = ['❤️', '🤍', '👍', '🔥', '👏', '🥰', '😂', '😮']
-const likeEmojiPool = () => STATUS_LIKE_EMOJIS.length ? STATUS_LIKE_EMOJIS : DEFAULT_LIKE_EMOJIS
 const statusLikeQueue = []
 let statusLikeBusy = false
 
@@ -67,6 +66,7 @@ async function pumpStatusLikeQueue() {
             'status like timed out'
           )
           liked = true
+          await job.sock.readMessages([job.key]).catch(() => {})
           console.log(`${job.emoji} Reacted to status from: ${job.participant}`)
         } catch (error) {
           console.warn(`⚠️ Status reaction attempt ${attempt} failed: ${error.message}`)
@@ -85,8 +85,7 @@ function enqueueStatusLike(sock, key, participant) {
     console.warn('⚠️ Status like queue full; skipping reaction')
     return
   }
-  const pool = likeEmojiPool()
-  const emoji = pool[Math.floor(Math.random() * pool.length)]
+  const emoji = chooseStatusReactionEmoji(CONFIG.STATUS_LIKE_EMOJI, Math.random, STATUS_LIKE_EMOJIS)
   statusLikeQueue.push({ sock, key, participant, emoji })
   void pumpStatusLikeQueue()
 }
@@ -120,6 +119,7 @@ function formatPhoneNumber(phone) {
 
 export async function processStatusMessage(msg, sock) {
   if (!msg?.key || !msg.message || (msg.key.remoteJid !== 'status@broadcast' && msg.key.remoteJidAlt !== 'status@broadcast')) return
+  if (!msg.key.id || msg.message?.protocolMessage) return
 
   if (msg.key.fromMe === true) return
 
@@ -164,7 +164,7 @@ export async function processStatusMessage(msg, sock) {
 
     if (CONFIG.AUTO_VIEW === true && !resolvedParticipant) {
       console.warn(`⚠️ Status ${id} arrived without a participant JID; skipping read receipt.`)
-    } else if (CONFIG.AUTO_VIEW === true) {
+    } else if (CONFIG.AUTO_VIEW === true && !(CONFIG.AUTO_LIKE === true && statusPosterJid !== 'Unknown')) {
       let viewError
       for (let attempt = 1; attempt <= STATUS_VIEW_MAX_RETRIES; attempt++) {
         try {
